@@ -15,8 +15,8 @@ for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
   [ -x "$b" ] && BREW="$b" && break
 done
 
-echo "== Instalando Java, yt-dlp, ffmpeg y deno =="
-if ! "$BREW" install openjdk yt-dlp ffmpeg deno; then
+echo "== Instalando Java, yt-dlp, gallery-dl, ffmpeg y deno =="
+if ! "$BREW" install openjdk yt-dlp gallery-dl ffmpeg deno; then
   echo "No se pudieron instalar los requisitos."
   read -r -p "Presiona Enter para cerrar."
   exit 1

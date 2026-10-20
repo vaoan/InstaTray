@@ -1,7 +1,9 @@
 # InstaTray — notes for Claude
 
-macOS menu-bar app (Java/AWT + Swing) that watches the clipboard for video links of 20 sites (`enum Site` +
-`RULES` table in InstaTray.java) and downloads them with yt-dlp through its own ordered queue. Each site uses the newest `*cookie*.txt` in
+macOS menu-bar app (Java/AWT + Swing) that watches the clipboard for video links of 30 sites (`enum Site` +
+`RULES` table in InstaTray.java) and downloads them through its own ordered queue with one of two engines
+(`Site.engine`): yt-dlp for video sites, gallery-dl for artists' own platforms (Pixiv, FANBOX, Fantia, DeviantArt,
+Misskey, Mastodon). Each site uses the newest `*cookie*.txt` in
 `~/Downloads` whose name mentions it (`enum Site`). Output: one folder, default `~/Documents/Videos`, user-changeable,
 optional per-site subfolders. History keys are `ig:`, `yt:`, `x:`, `twclip:`, `twvod:` + id.
 User-facing docs (Spanish) are in README.md — keep it in sync with every feature change.
@@ -25,8 +27,20 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   `InstaTray.app`, symlinks it to `~/Documents/InstaTray.app`.
 - Quit the running copy first: `pkill -f InstaTray.jar`.
 
+## gallery-dl specifics
+- Run with `-o output.mode=terminal -o output.shorten=false -o downloader.progress=0`: pipe mode prints no progress
+  and terminal mode would truncate paths to 80 columns. Output is read with `readSegment()` (splits on `\r` and `\n`).
+  Lines: `  /path` = file starting (→ destinations + tooltip name), ` 45%  1.2MB 300kB/s` = progress,
+  `✔ /path` / `* /path` = saved, `# /path` = already there.
+- `--filter` keeps only video/animation extensions (zip = Pixiv ugoira, `--ugoira mp4`); non-mp4 results go through
+  `toPlayableMp4()` (ffmpeg → H.264/AAC). Filename `{category}_{id}{num:?_//}.{extension}`.
+- Pixiv needs `gallery-dl oauth:pixiv` once (token cached by gallery-dl); tray menu "Conectar Pixiv…" opens Terminal.
+- Deliberately NOT supported (re-host others' work without permission): Kemono, Coomer, nhentai, ExHentai, Hitomi,
+  manga aggregators (e.g. myreadingmanga), boorus. The user asked for myreadingmanga twice; it was declined.
+
 ## Adding a site
-1. `Site` entry (label, filename template, cookie-file keys — keys with a dot must start the file name —, cookie domains).
+1. `Site` entry (engine, label, yt-dlp filename template, cookie-file keys — keys with a dot must start the file name —,
+   cookie domains). Only creator-owned platforms or video sites; never re-upload aggregators.
 2. `AeroIcon.Palette` entry with the same name (glass colors only, no logos); check `--palettes` sheet.
 3. `rule(...)` lines in `RULES`: match only single video/post URLs (never profiles/channels/live), key = prefix:id,
    url = clean canonical URL. Add positive and must-ignore samples to the LinkTest and run it.
@@ -37,6 +51,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (toggle "Avisar si una descarga falla"); transient failures are retried silently (configurable 0–5 times, delay
   10s/30s/1m/5m growing linearly). Permanent failures (live, no video, login/cookies, no yt-dlp) are not retried.
 - The window opens only on explicit request: tray menu, or a second launch of the app.
+- Tray tooltip: live "Site · title — 45% · 2.1 MB/s · quedan 0:12 · +N en cola" (`tooltip()`, throttled
+  `refreshTooltip()`); yt-dlp gives title/speed/eta via `--print before_dl:TITLE …` (+ `--no-simulate`) and the
+  progress template; back to "sin descargas" when idle.
 - Tray badge: **1 pending → download percent with a small superscript "%"** (badge text "45%"; `drawBadge` keeps the
   digits full size); **≥2 pending → pending count, no "%"** (`9+` cap). The "%" is what tells the two apart. The fill level always shows the
   current download's progress (washed-out orb filling with saturated color bottom→top, meniscus line).
@@ -70,7 +87,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 ## Verifying without screen-recording/accessibility permissions
 `screencapture` and System Events are denied. Instead:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
-  `running | yt:ID Descargando 38% | …`. Also `pause`, `resume`, `top KEY`, `cancel KEY`; an empty line shows the window.
+  `running | yt:ID Descargando 38% | …`. Also `tooltip`, `pause`, `resume`, `top KEY`, `cancel KEY`; an empty line
+  shows the window.
 - **Log**: `updateTrayIcon()` logs `Tray icon -> PALETTE:badge:fillStep`; cleanup logs `Deleted partial …`.
 - **Swift CGWindowList**: layer-25 windows = menu-bar items (count with app running vs. not; all are owned by
   Control Center on macOS 26); windows owned by the java pid = app windows (check `onscreen`).

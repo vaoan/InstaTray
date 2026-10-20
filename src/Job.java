@@ -26,6 +26,10 @@ final class Job {
     volatile List<String> files = List.of();
     /** Automatic retries already used for the current request. */
     volatile int attempt = 0;
+    /** Shown in the tray tooltip while downloading: video title (or file name), speed and time left. */
+    volatile String title = "";
+    volatile String speed = "";
+    volatile String eta = "";
     /** A waiting automatic retry is not started before this time (epoch ms). */
     volatile long notBefore = 0;
     volatile boolean cancelRequested = false;

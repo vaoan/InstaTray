@@ -50,6 +50,14 @@ public final class InstaTray {
     private static final Path LOG = STATE_DIR.resolve("instatray.log");
 
     private static final String TITLED = "%(title).80B_[%(id)s].%(ext)s";
+    /** "{num:?_//}" adds "_N" only for multi-file posts, so single files don't end in "_None". */
+    private static final String GALLERY_DL_FILENAME = "{category}_{id}{num:?_//}.{extension}";
+    /** Video/animation files kept from gallery-dl posts ("zip" = Pixiv ugoira, converted to mp4). */
+    private static final String GALLERY_DL_FILTER =
+            "extension in ('mp4', 'webm', 'mov', 'm4v', 'mkv', 'gif', 'zip')";
+
+    /** Which downloader handles a site. */
+    enum Engine { YT_DLP, GALLERY_DL }
 
     enum Site {
         INSTAGRAM("Instagram", "%(channel,uploader|instagram)s_%(id)s_%(autonumber)02d.%(ext)s",
@@ -73,14 +81,36 @@ public final class InstaTray {
         TUMBLR("Tumblr", "%(uploader_id|tumblr)s_%(id)s.%(ext)s", new String[]{"tumblr"}, "tumblr.com"),
         LINKEDIN("LinkedIn", TITLED, new String[]{"linkedin"}, "linkedin.com"),
         SNAPCHAT("Snapchat", "snapchat_%(id)s.%(ext)s", new String[]{"snapchat"}, "snapchat.com"),
-        BILIBILI("Bilibili", TITLED, new String[]{"bilibili"}, "bilibili.com");
+        BILIBILI("Bilibili", TITLED, new String[]{"bilibili"}, "bilibili.com"),
+        NEWGROUNDS("Newgrounds", TITLED, new String[]{"newgrounds"}, "newgrounds.com"),
+        IWARA("Iwara", TITLED, new String[]{"iwara"}, "iwara.tv"),
+        PATREON("Patreon", TITLED, new String[]{"patreon"}, "patreon.com"),
+        WEIBO("Weibo", "weibo_%(id)s.%(ext)s", new String[]{"weibo"}, "weibo.com", "weibo.cn"),
+        // gallery-dl sites: artists' own platforms (yt-dlp has no extractor for them)
+        PIXIV(Engine.GALLERY_DL, "Pixiv", new String[]{"pixiv"}, "pixiv.net"),
+        FANBOX(Engine.GALLERY_DL, "FANBOX", new String[]{"fanbox"}, "fanbox.cc"),
+        FANTIA(Engine.GALLERY_DL, "Fantia", new String[]{"fantia"}, "fantia.jp"),
+        DEVIANTART(Engine.GALLERY_DL, "DeviantArt", new String[]{"deviantart"}, "deviantart.com"),
+        MISSKEY(Engine.GALLERY_DL, "Misskey", new String[]{"misskey"}, "misskey.io"),
+        MASTODON(Engine.GALLERY_DL, "Mastodon", new String[]{"mastodon", "pawoo"}, "mastodon.social", "pawoo.net");
 
+        final Engine engine;
         final String label;
+        /** yt-dlp output template (gallery-dl sites use {@link #GALLERY_DL_FILENAME}). */
         final String template;
         private final String[] cookieKeys;
         private final String[] domains;
 
         Site(String label, String template, String[] cookieKeys, String... domains) {
+            this(Engine.YT_DLP, label, template, cookieKeys, domains);
+        }
+
+        Site(Engine engine, String label, String[] cookieKeys, String... domains) {
+            this(engine, label, null, cookieKeys, domains);
+        }
+
+        Site(Engine engine, String label, String template, String[] cookieKeys, String... domains) {
+            this.engine = engine;
             this.label = label;
             this.template = template;
             this.cookieKeys = cookieKeys;
@@ -227,7 +257,40 @@ public final class InstaTray {
             // Bilibili video (BV / av ids) and b23.tv short links
             rule(Site.BILIBILI, "https?://" + SUB + "bilibili\\.com/video/(BV[A-Za-z0-9]+|av\\d+)",
                     m -> "bili:" + m.group(1), m -> "https://www.bilibili.com/video/" + m.group(1) + "/"),
-            rule(Site.BILIBILI, "https?://b23\\.tv/([A-Za-z0-9]+)", m -> "bili:s:" + m.group(1), InstaTray::clean));
+            rule(Site.BILIBILI, "https?://b23\\.tv/([A-Za-z0-9]+)", m -> "bili:s:" + m.group(1), InstaTray::clean),
+            // Newgrounds movie
+            rule(Site.NEWGROUNDS, "https?://" + SUB + "newgrounds\\.com/portal/view/(\\d+)",
+                    m -> "ng:" + m.group(1), m -> "https://www.newgrounds.com/portal/view/" + m.group(1)),
+            // Iwara video
+            rule(Site.IWARA, "https?://" + SUB + "iwara\\.tv/video/([A-Za-z0-9]+)",
+                    m -> "iwara:" + m.group(1), m -> "https://www.iwara.tv/video/" + m.group(1)),
+            // Patreon post (only what the account in the cookies can see)
+            rule(Site.PATREON, "https?://" + SUB + "patreon\\.com/posts/(?:[A-Za-z0-9-]*-)?(\\d+)",
+                    m -> "patreon:" + m.group(1), InstaTray::clean),
+            // Weibo post (desktop and mobile)
+            rule(Site.WEIBO, "https?://(?:www\\.)?weibo\\.com/\\d+/([A-Za-z0-9]+)",
+                    m -> "weibo:" + m.group(1), InstaTray::clean),
+            rule(Site.WEIBO, "https?://m\\.weibo\\.cn/(?:detail|status)/(\\d+)",
+                    m -> "weibo:" + m.group(1), InstaTray::clean),
+            // Pixiv artwork (ugoira animations are converted to mp4)
+            rule(Site.PIXIV, "https?://" + SUB + "pixiv\\.net/(?:[a-z]{2}/)?(?:artworks|i)/(\\d+)",
+                    m -> "px:" + m.group(1), m -> "https://www.pixiv.net/artworks/" + m.group(1)),
+            rule(Site.PIXIV, "https?://" + SUB + "pixiv\\.net/member_illust\\.php\\?\\S*?illust_id=(\\d+)",
+                    m -> "px:" + m.group(1), m -> "https://www.pixiv.net/artworks/" + m.group(1)),
+            // pixiv FANBOX post (creator.fanbox.cc or fanbox.cc/@creator)
+            rule(Site.FANBOX, "https?://(?:[a-z0-9-]+\\.fanbox\\.cc|(?:www\\.)?fanbox\\.cc/@[a-z0-9_-]+)/posts/(\\d+)",
+                    m -> "fanbox:" + m.group(1), InstaTray::clean),
+            // Fantia post
+            rule(Site.FANTIA, "https?://(?:www\\.)?fantia\\.jp/posts/(\\d+)",
+                    m -> "fantia:" + m.group(1), m -> "https://fantia.jp/posts/" + m.group(1)),
+            // DeviantArt deviation (slug ends with the numeric id)
+            rule(Site.DEVIANTART, "https?://(?:www\\.)?deviantart\\.com/[A-Za-z0-9_-]+/art/[A-Za-z0-9_-]*?(\\d{6,})",
+                    m -> "da:" + m.group(1), InstaTray::clean),
+            // Misskey note
+            rule(Site.MISSKEY, "https?://misskey\\.io/notes/([a-z0-9]+)", m -> "mk:" + m.group(1), InstaTray::clean),
+            // Mastodon status on the instances gallery-dl knows
+            rule(Site.MASTODON, "https?://(mastodon\\.social|pawoo\\.net)/@[A-Za-z0-9_]+/(\\d+)",
+                    m -> "masto:" + m.group(1) + ":" + m.group(2), InstaTray::clean));
 
     private static final int INSTANCE_PORT = 48623;
 
@@ -254,6 +317,8 @@ public final class InstaTray {
     private volatile Site activeSite;
     private final Map<String, BufferedImage> iconCache = new ConcurrentHashMap<>();
     private volatile String lastIconKey = "IDLE:null:-1";
+    private volatile String lastTooltip = "";
+    private volatile long lastTooltipAt = 0;
     /** Progress of the current download, 0..100, or -1 when unknown. */
     private volatile int activePercent = -1;
     private volatile String lastClip = "";
@@ -339,6 +404,8 @@ public final class InstaTray {
         maintenance.setDaemon(true);
         maintenance.start();
 
+        updateTrayIcon(); // initial tooltip
+
         Thread downloader = new Thread(this::workerLoop, "downloader");
         downloader.setDaemon(true);
         downloader.start();
@@ -381,6 +448,9 @@ public final class InstaTray {
         subfoldersItem.addItemListener(e -> setSubfolders(subfoldersItem.getState()));
         menu.add(subfoldersItem);
 
+        MenuItem pixiv = new MenuItem("Conectar Pixiv…");
+        pixiv.addActionListener(e -> connectPixiv());
+
         MenuItem hist = new MenuItem("Cola e historial…");
         hist.addActionListener(e -> history.show());
         menu.add(hist);
@@ -388,6 +458,7 @@ public final class InstaTray {
         pauseItem = new CheckboxMenuItem("Pausar cola", false);
         pauseItem.addItemListener(e -> setPaused(pauseItem.getState()));
         menu.add(pauseItem);
+        menu.add(pixiv);
 
         MenuItem show = new MenuItem("Mostrar ventana");
         show.addActionListener(e -> showWindow());
@@ -548,7 +619,7 @@ public final class InstaTray {
 
     /**
      * Loopback-only control channel. An empty line (a second launch) shows the window; the other
-     * commands exist so the queue can be exercised from a terminal: queue, pause, resume, top KEY, cancel KEY.
+     * commands exist so the queue can be exercised from a terminal: queue, tooltip, pause, resume, top KEY, cancel KEY.
      */
     private String control(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
@@ -561,6 +632,7 @@ public final class InstaTray {
                 for (Job j : queueSnapshot()) sb.append(" | ").append(j.link.key()).append(' ').append(j.statusText());
                 return sb.toString();
             }
+            case "tooltip" -> { return lastTooltip; }
             case "pause" -> setPaused(true);
             case "resume" -> setPaused(false);
             case "top" -> { if (job != null) move(job, Integer.MIN_VALUE); else return "no such job"; }
@@ -682,23 +754,66 @@ public final class InstaTray {
         AeroIcon.Palette palette = pending == 0 || site == null ? AeroIcon.Palette.IDLE : site.palette();
         int pct = palette == AeroIcon.Palette.IDLE ? -1 : activePercent;
         // One item: the number is its download percentage. Several: the number is how many are pending.
+        // (one item with unknown progress, e.g. gallery-dl: the site-colored orb shows the download arrow)
         String badge = palette == AeroIcon.Palette.IDLE ? null
-                : pending == 1 ? Math.max(0, pct) + "%"
+                : pending == 1 ? (pct < 0 ? null : pct + "%")
                 : pending > 9 ? "9+" : String.valueOf(pending);
         int step = pct < 0 ? -1 : pct / 5 * 5; // 5% steps keep the icon cache small (fill level)
         String key = palette + ":" + badge + ":" + step;
         BufferedImage img = iconCache.computeIfAbsent(key,
-                k -> AeroIcon.render(44, palette, badge, step < 0 ? 0f : step / 100f));
+                k -> AeroIcon.render(44, palette, badge, step < 0 ? -1f : step / 100f));
         if (!key.equals(lastIconKey)) log("Tray icon -> " + key);
         lastIconKey = key;
-        String tip = paused && pending > 0 ? "InstaTray — cola en pausa, " + pending + " pendientes"
-                : badge == null ? "InstaTray — sin descargas"
-                : "InstaTray — bajando de " + site.label + (pct >= 0 ? " " + pct + "%" : "") + ", "
-                + pending + (pending == 1 ? " pendiente" : " pendientes");
+        String tip = tooltip(pending);
+        lastTooltip = tip;
+        lastTooltipAt = System.currentTimeMillis();
         EventQueue.invokeLater(() -> {
             trayIcon.setImage(img);
             trayIcon.setToolTip(tip);
         });
+    }
+
+    /** "YouTube · Me at the zoo — 45% · 2.1 MB/s · quedan 0:12 · +2 en cola" */
+    private String tooltip(int pending) {
+        if (paused && pending > 0) return "InstaTray — cola en pausa, " + pending + (pending == 1 ? " pendiente" : " pendientes");
+        Job j = current;
+        if (j == null || j.isFinished()) {
+            return pending == 0 ? "InstaTray — sin descargas" : "InstaTray — " + pending + " en cola";
+        }
+        StringBuilder sb = new StringBuilder(j.link.site().label);
+        if (!j.title.isBlank()) sb.append(" · ").append(shorten(j.title, 50));
+        sb.append(" — ").append(j.percent >= 0 ? j.percent + "%" : "preparando…");
+        if (!j.speed.isBlank()) sb.append(" · ").append(j.speed);
+        if (!j.eta.isBlank()) sb.append(" · quedan ").append(j.eta);
+        if (pending > 1) sb.append(" · +").append(pending - 1).append(" en cola");
+        if (j.attempt > 0) sb.append(" · reintento ").append(j.attempt);
+        return sb.toString();
+    }
+
+    /** Live tooltip update for speed / time-left changes, at most about once a second. */
+    private void refreshTooltip() {
+        long now = System.currentTimeMillis();
+        if (now - lastTooltipAt < 900) return;
+        String tip = tooltip(queued.size());
+        if (tip.equals(lastTooltip)) return;
+        lastTooltip = tip;
+        lastTooltipAt = now;
+        EventQueue.invokeLater(() -> trayIcon.setToolTip(tip));
+    }
+
+    private static String shorten(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+    }
+
+    static String formatSpeed(double bytesPerSec) {
+        if (bytesPerSec >= 1024 * 1024) return String.format(Locale.ROOT, "%.1f MB/s", bytesPerSec / (1024 * 1024));
+        if (bytesPerSec >= 1024) return String.format(Locale.ROOT, "%.0f KB/s", bytesPerSec / 1024);
+        return String.format(Locale.ROOT, "%.0f B/s", bytesPerSec);
+    }
+
+    static String formatEta(long seconds) {
+        long h = seconds / 3600, m = seconds % 3600 / 60, sec = seconds % 60;
+        return h > 0 ? String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec) : String.format(Locale.ROOT, "%d:%02d", m, sec);
     }
 
     // Must not run on the EDT: reading ~/Downloads may block on the macOS privacy prompt
@@ -839,6 +954,7 @@ public final class InstaTray {
             } finally {
                 current = null;
                 currentProcess = null;
+                updateTrayIcon(); // tooltip back to "sin descargas" / next in queue
             }
         }
     }
@@ -938,6 +1054,49 @@ public final class InstaTray {
     }
 
     /**
+     * Converts a downloaded file to mp4 H.264 + AAC unless it already is mp4 (Pixiv ugoira come out as
+     * H.264 mp4 already). GIFs and webm become mp4; the original is removed. Returns the final path.
+     */
+    private static String toPlayableMp4(String file, String ffmpeg, Job job) {
+        if (file.toLowerCase(Locale.ROOT).endsWith(".mp4") || ffmpeg == null) return file;
+        String out = file.replaceFirst("\\.[A-Za-z0-9]+$", "") + ".mp4";
+        List<String> cmd = List.of(ffmpeg, "-y", "-loglevel", "error", "-i", file,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:a", "aac", "-movflags", "+faststart", out);
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String err = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (p.waitFor() == 0 && Files.exists(Paths.get(out))) {
+                Files.deleteIfExists(Paths.get(file));
+                job.addOutput("[InstaTray] convertido a mp4: " + out);
+                return out;
+            }
+            job.addOutput("[InstaTray] no se pudo convertir " + file + ": " + err);
+        } catch (Exception e) {
+            job.addOutput("[InstaTray] no se pudo convertir " + file + ": " + e);
+        }
+        return file;
+    }
+
+    /** Pixiv needs a one-time OAuth login: gallery-dl walks the user through it in Terminal and caches the token. */
+    void connectPixiv() {
+        String galleryDl = findBin("gallery-dl");
+        if (galleryDl == null) {
+            notify("InstaTray", "gallery-dl todavía no está instalado; vuelve a intentarlo en un minuto");
+            poller.execute(this::ensureTools);
+            return;
+        }
+        String script = "tell application \"Terminal\"\n activate\n do script \"clear; echo 'InstaTray: conectar Pixiv (solo una vez)'; "
+                + galleryDl + " oauth:pixiv\"\nend tell";
+        try {
+            new ProcessBuilder("osascript", "-e", script).start();
+            log("Opened Terminal for gallery-dl oauth:pixiv");
+        } catch (IOException e) {
+            log("ERROR opening Terminal: " + e);
+        }
+    }
+
+    /**
      * Stops yt-dlp and its children and waits until they are really gone: a dying yt-dlp can still
      * reopen its .part file for the next fragment, so cleaning up earlier leaves the file behind.
      */
@@ -1028,29 +1187,45 @@ public final class InstaTray {
         String name = site.label + " " + shortKey(link.key());
         Path outDir = outDir(site);
         job.cancelRequested = false;
+        job.title = "";
+        job.speed = "";
+        job.eta = "";
         try {
-            String ytdlp = findBin("yt-dlp");
-            if (ytdlp == null && ensureTools()) ytdlp = findBin("yt-dlp");
-            if (ytdlp == null) {
-                fail(job, name, "Falta yt-dlp y no se pudo instalar con Homebrew (mira el registro)", true);
+            boolean gallery = site.engine == Engine.GALLERY_DL;
+            String tool = gallery ? "gallery-dl" : "yt-dlp";
+            String bin = findBin(tool);
+            if (bin == null && ensureTools()) bin = findBin(tool);
+            if (bin == null) {
+                fail(job, name, "Falta " + tool + " y no se pudo instalar con Homebrew (mira el registro)", true);
                 return;
             }
             Files.createDirectories(outDir);
             Path cookies = findCookies(site);
             activeSite = site;
-            activePercent = 0;
+            // gallery-dl prints no percentage while it reads the post: until then the site-colored orb shows the arrow
+            activePercent = gallery ? -1 : 0;
             job.status = Job.Status.DOWNLOADING;
-            job.percent = 0;
+            job.percent = gallery ? -1 : 0;
             updateTrayIcon();
             setStatus("Descargando " + name + "…");
             log("Downloading " + link.url() + (cookies != null ? " with cookies " + cookies : " without cookies"));
 
-            List<String> cmd = new ArrayList<>(List.of(
-                    ytdlp,
+            List<String> cmd = gallery ? new ArrayList<>(List.of(
+                    bin,
+                    "--no-colors",
+                    // terminal mode prints progress (pipe mode prints none); full paths; progress from the start
+                    "-o", "output.mode=terminal", "-o", "output.shorten=false", "-o", "downloader.progress=0",
+                    "-D", outDir.toString(),
+                    "-f", GALLERY_DL_FILENAME,
+                    "--filter", GALLERY_DL_FILTER, // video posts only; images are skipped
+                    "--ugoira", "mp4"))
+                    : new ArrayList<>(List.of(
+                    bin,
                     // --print implies quiet mode, which hides progress: force it back on
                     "--newline", "--no-quiet", "--progress", "--no-overwrites", "--restrict-filenames",
                     "--progress-template",
-                    "download:" + PROGRESS_PREFIX + "%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
+                    "download:" + PROGRESS_PREFIX + "%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s"
+                            + " %(progress.speed)s %(progress.eta)s",
                     "--no-playlist",
                     "--match-filter", "!is_live", // never start recording a live stream
                     "-f", "bv*+ba/b",
@@ -1060,9 +1235,11 @@ public final class InstaTray {
                     // sites that only offer VP8/VP9 webm (e.g. 9GAG) get converted; files already in mp4 are left alone
                     "--recode-video", "mp4",
                     "-o", outDir + "/" + site.template,
-                    "--print", "after_move:filepath"));
+                    "--print", "after_move:filepath",
+                    "--print", "before_dl:" + TITLE_PREFIX + "%(title)s",
+                    "--no-simulate"));
             String ffmpeg = findBin("ffmpeg");
-            if (ffmpeg != null) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
+            if (ffmpeg != null && !gallery) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
             if (cookies != null) {
                 // yt-dlp rewrites the cookie jar on exit, so it gets a copy holding only this site's cookies:
                 // the original stays intact and a full-browser export never leaks other sites' sessions
@@ -1080,10 +1257,45 @@ public final class InstaTray {
             List<String> files = new ArrayList<>();
             StringBuilder tail = new StringBuilder();
             Progress progress = new Progress();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            try (Reader r = new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8)) {
                 String line;
-                while ((line = r.readLine()) != null) {
+                // gallery-dl redraws its progress with "\r", so the output is split on "\r" as well as "\n"
+                while ((line = readSegment(r)) != null) {
+                    if (line.isBlank()) continue;
+                    if (gallery) {
+                        Matcher gp = GALLERY_DL_PERCENT.matcher(line);
+                        if (gp.find()) {
+                            job.speed = gp.group(2) != null ? gp.group(2).replace("kB/s", " KB/s").replace("MB/s", " MB/s") : "";
+                            refreshTooltip();
+                            int pct = Math.min(99, Integer.parseInt(gp.group(1))); // 100 once the file is saved
+                            if (pct != job.percent) {
+                                job.percent = pct;
+                                activePercent = pct;
+                                updateTrayIcon();
+                                if (pct % 10 == 0) setStatus("Descargando " + name + "… " + pct + "%");
+                            }
+                            continue; // progress lines are not logged
+                        }
+                        String trimmed = line.strip();
+                        if (line.startsWith("  /")) {
+                            job.destinations.add(trimmed); // file about to be written
+                            job.title = Paths.get(trimmed).getFileName().toString();
+                        }
+                        if (trimmed.startsWith("✔ /") || trimmed.startsWith("* /")) {
+                            String f = trimmed.substring(2);
+                            if (Files.exists(Paths.get(f))) files.add(f);
+                        }
+                    }
+                    if (line.startsWith(TITLE_PREFIX)) {
+                        job.title = line.substring(TITLE_PREFIX.length()).strip();
+                        refreshTooltip();
+                        continue;
+                    }
                     if (line.startsWith(PROGRESS_PREFIX)) {
+                        String[] pf = line.substring(PROGRESS_PREFIX.length()).trim().split("\\s+");
+                        job.speed = pf.length > 2 && !pf[2].equals("NA") ? formatSpeed(parseOr(pf[2], 0)) : "";
+                        job.eta = pf.length > 3 && !pf[3].equals("NA") ? formatEta((long) parseOr(pf[3], 0)) : "";
+                        refreshTooltip();
                         int pct = progress.update(line.substring(PROGRESS_PREFIX.length()));
                         if (pct >= 0 && pct != job.percent) {
                             job.percent = pct;
@@ -1100,6 +1312,10 @@ public final class InstaTray {
                     log("  " + line);
                     job.addOutput(line);
                     if (line.startsWith("/") && Files.exists(Paths.get(line))) files.add(line);
+                    // gallery-dl marks files it already has with "# "
+                    if (gallery && line.startsWith("# /") && Files.exists(Paths.get(line.substring(2)))) {
+                        files.add(line.substring(2));
+                    }
                     tail.setLength(0);
                     tail.append(line);
                 }
@@ -1114,6 +1330,12 @@ public final class InstaTray {
                 return;
             }
 
+            if (exit == 0 && !files.isEmpty() && gallery) {
+                // gallery-dl keeps the site's own format (webm, gif…): make everything QuickTime-friendly
+                List<String> converted = new ArrayList<>();
+                for (String f : files) converted.add(toPlayableMp4(f, ffmpeg, job));
+                files = converted;
+            }
             if (exit == 0 && !files.isEmpty()) {
                 done.add(link.key());
                 Files.writeString(HISTORY, link.key() + "\n", StandardCharsets.UTF_8,
@@ -1127,7 +1349,18 @@ public final class InstaTray {
             } else {
                 String msg = tail.toString();
                 boolean permanent = true;
-                if (exit == 0 || msg.contains("is_live")) {
+                String all = job.outputText();
+                if (gallery && exit == 0) {
+                    msg = "Ese post no tiene video ni animación (solo imágenes)";
+                } else if (site == Site.PIXIV && (all.contains("refresh-token") || all.contains("401")
+                        || all.contains("Unauthorized") || all.contains("OAuth"))) {
+                    msg = "Pixiv pide conectar tu cuenta: menú de la esfera → Conectar Pixiv…";
+                } else if (gallery && (all.contains("403") || all.contains("401") || all.contains("login")
+                        || all.contains("Forbidden") || all.contains("cookies"))) {
+                    msg = site.label + " pide sesión: exporta cookies nuevas de " + site.label + " a Descargas";
+                } else if (all.contains("404") || all.contains("NotFound") || all.contains("not found")) {
+                    msg = "No existe, se borró o es privado";
+                } else if (exit == 0 || msg.contains("is_live")) {
                     msg = "Es una transmisión en vivo: no se graba";
                 } else if (msg.contains("There is no video") || msg.contains("No video could be found")) {
                     msg = "Ese post no tiene video";
@@ -1197,6 +1430,29 @@ public final class InstaTray {
     }
 
     private static final String PROGRESS_PREFIX = "PROG ";
+    private static final String TITLE_PREFIX = "TITLE ";
+    /** gallery-dl terminal-mode progress: " 45%  1.20MB 300.00kB/s". */
+    private static final Pattern GALLERY_DL_PERCENT =
+            Pattern.compile("^\\s*(\\d{1,3})%\\s+\\S+\\s+([\\d.]+[kMG]?B/s)?");
+
+    private static double parseOr(String s, double fallback) {
+        try {
+            return Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** Next piece of output ending in "\n" or "\r"; null at end of stream. */
+    private static String readSegment(Reader r) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int c;
+        while ((c = r.read()) != -1) {
+            if (c == '\n' || c == '\r') return sb.toString();
+            sb.append((char) c);
+        }
+        return sb.length() > 0 ? sb.toString() : null;
+    }
 
     /**
      * Turns yt-dlp's per-file byte progress into one overall percentage. A "video+audio" format downloads
@@ -1299,7 +1555,7 @@ public final class InstaTray {
      */
     private synchronized boolean ensureTools() {
         List<String> missing = new ArrayList<>();
-        for (String t : new String[]{"yt-dlp", "ffmpeg", "deno"}) {
+        for (String t : new String[]{"yt-dlp", "gallery-dl", "ffmpeg", "deno"}) {
             if (findBin(t) == null) missing.add(t);
         }
         if (missing.isEmpty()) return true;
@@ -1324,7 +1580,9 @@ public final class InstaTray {
         if (System.currentTimeMillis() - last < UPGRADE_EVERY_MS) return;
         String brew = findBrew();
         if (brew == null || findBin("yt-dlp") == null) return;
-        if (runBrew(List.of(brew, "upgrade", "yt-dlp"), "upgrade yt-dlp")) {
+        if (findBin("gallery-dl") == null) ensureTools();
+        // both track sites that change often
+        if (runBrew(List.of(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
             saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
         }
     }

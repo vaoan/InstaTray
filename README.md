@@ -1,9 +1,9 @@
 # InstaTray
 
 App de barra de menú para macOS, escrita en Java. Vigila el portapapeles y, cuando copias un enlace
-de un video de **20 sitios** (Instagram, YouTube, TikTok, X, Twitch, Reddit, Facebook y más), lo descarga en
-segundo plano con `yt-dlp`, usando las cookies de ese sitio que tengas en Descargas. Si falta algo para
-funcionar (Homebrew, Java, yt-dlp, ffmpeg, deno), **lo instala solo**. Está hecha para ser **lo más silenciosa posible**:
+de un video de **30 sitios** (Instagram, YouTube, TikTok, X, Twitch, Reddit, Facebook, Pixiv y más), lo descarga
+en segundo plano con `yt-dlp` o `gallery-dl`, usando las cookies de ese sitio que tengas en Descargas. Si falta
+algo para funcionar (Homebrew, Java, yt-dlp, gallery-dl, ffmpeg, deno), **lo instala solo**. Está hecha para ser **lo más silenciosa posible**:
 arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que falla.
 
 ## Uso
@@ -29,13 +29,17 @@ Todos los íconos son esferas de vidrio estilo Aero (Windows Vista), dibujadas p
 | Bajando de YouTube | **Roja** pareja, de un solo tono, para no confundirla con Instagram |
 | Bajando de X | **Grafito** |
 | Bajando de Twitch | **Morada** |
-| Los otros 16 sitios | Un color propio cada uno. Todos están en `icon-palettes.png`. Algunos se parecen (Facebook, Streamable y LinkedIn son azules); al pasar el mouse se ve el sitio |
+| Los otros 26 sitios | Un color propio cada uno. Todos están en `icon-palettes.png`. Algunos se parecen (Facebook, Streamable y LinkedIn son azules); al pasar el mouse se ve el sitio |
 
 - **Relleno:** mientras baja, la esfera está deslavada y se va **llenando de color saturado de abajo hacia arriba** según el porcentaje, con una línea brillante en el nivel.
 - **Número del centro:**
   - con **una** descarga, es su **porcentaje**, con un `%` pequeño arriba a la derecha (`45%`);
   - con **varias**, es **cuántas hay pendientes**, sin `%` (`3`, o `9+` si son más de 9).
-- **Al pasar el mouse:** el detalle ("bajando de YouTube 45%, 3 pendientes", o "cola en pausa").
+- **Al pasar el mouse** se ve qué se está bajando, de dónde y el progreso en vivo, actualizado cada segundo:
+  `YouTube · Big Buck Bunny 60fps 4K… — 17% · 27.9 MB/s · quedan 0:07 · +2 en cola`
+  - Con yt-dlp muestra el título del video. Con gallery-dl muestra el nombre del archivo, porque esos sitios no siempre tienen título.
+  - Mientras lee el post todavía no hay porcentaje: muestra "preparando…" y la esfera del sitio con la flecha.
+  - Sin descargas: "InstaTray — sin descargas"; en pausa: "cola en pausa, N pendientes".
 
 ## Sitios soportados
 
@@ -65,13 +69,33 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 | LinkedIn | `linkedin.com/posts/…-activity-…` | Sí |
 | Snapchat | `snapchat.com/spotlight/…` (solo Spotlight públicos) | No |
 | Bilibili | `bilibili.com/video/BV…` o `av…`, `b23.tv/…` | No, para calidad normal |
+| Newgrounds | `newgrounds.com/portal/view/…` | No |
+| Iwara | `iwara.tv/video/…` | Para contenido restringido |
+| Patreon | `patreon.com/posts/…` | Solo lo que tu cuenta puede ver (públicos o creadores que apoyas) |
+| Weibo | `weibo.com/usuario/post`, `m.weibo.cn/detail/…` | No |
+| **Pixiv** · gallery-dl | `pixiv.net/artworks/…` (también `/en/`, `/i/…`, `member_illust.php?illust_id=`) | Conexión única: menú de la esfera → **Conectar Pixiv…** |
+| **pixiv FANBOX** · gallery-dl | `creador.fanbox.cc/posts/…`, `fanbox.cc/@creador/posts/…` | Sí, y solo lo que tu cuenta puede ver |
+| **Fantia** · gallery-dl | `fantia.jp/posts/…` | Sí, y solo lo que tu cuenta puede ver |
+| **DeviantArt** · gallery-dl | `deviantart.com/artista/art/…-123456789` | No, para obras públicas |
+| **Misskey** · gallery-dl | `misskey.io/notes/…` | No |
+| **Mastodon** · gallery-dl | `mastodon.social/@usuario/…`, `pawoo.net/@usuario/…` | No |
+
+**Dos motores:**
+- **yt-dlp** baja los sitios de video.
+- **gallery-dl** baja los sitios donde los artistas publican su propio trabajo. De cada post se queda solo con los **videos y animaciones** (mp4, webm, mov, gif y ugoira de Pixiv) y salta las imágenes. Si un post solo tiene imágenes, dice "Ese post no tiene video ni animación".
+
+**Pixiv:**
+- Pixiv no aloja videos normales. Lo animado son *ugoira* (cuadros sin sonido), que se convierten a mp4.
+- Necesita una conexión **única**: menú de la esfera → **Conectar Pixiv…**. Se abre la Terminal con `gallery-dl oauth:pixiv`; inicias sesión en el navegador y pegas el código.
+- Las obras R-18 requieren tener esa opción activada en tu cuenta de Pixiv.
 
 **No soportados:**
 - **Threads:** yt-dlp no tiene extractor.
 - **Netflix, Crunchyroll, Disney+, Spotify y similares:** tienen protección anticopia (DRM).
+- **Sitios que re-suben obras ajenas sin permiso**, aunque gallery-dl los soporte: Kemono, Coomer, nhentai, ExHentai, Hitomi, agregadores de manga y "boorus". Es una decisión a propósito.
 
 **Formato:**
-- Siempre **mp4 H.264 + AAC**, que se reproduce en QuickTime.
+- Siempre **mp4 H.264 + AAC**, que se reproduce en QuickTime. Lo de gallery-dl que no venga en mp4 (webm, gif) lo convierte InstaTray con ffmpeg.
 - Se prefiere H.264. Si un sitio solo ofrece webm (VP8/VP9, como 9GAG), se convierte a mp4 solo.
 - Los parámetros de compartir (`?igsh=`, `?si=`, `?s=46`, `&t=…`) se quitan, y cada enlace pasa a su forma original.
 
@@ -131,19 +155,20 @@ En `~/Library/Application Support/InstaTray/`:
 
 ## Requisitos (se instalan solos)
 
-InstaTray necesita **Homebrew**, **Java** (`openjdk`), **yt-dlp**, **ffmpeg** y **deno**. No hace falta instalarlos a mano:
+InstaTray necesita **Homebrew**, **Java** (`openjdk`), **yt-dlp**, **gallery-dl**, **ffmpeg** y **deno**. No hace falta instalarlos a mano:
 
 - **Al abrir la app**, el lanzador (`Contents/MacOS/InstaTray`) revisa todo **antes** de arrancar Java:
   - Si falta algún paquete, avisa con una notificación ("Instalando lo que falta…"), ejecuta `brew install` y luego abre la app.
   - Si falla, avisa y muestra `setup.log` en el Finder.
 - **Si falta Homebrew**, pregunta antes de instalar y abre la **Terminal** con el instalador oficial de Homebrew (`setup.command`), porque Homebrew pide tu contraseña de administrador. Al terminar instala los paquetes y vuelve a abrir InstaTray.
-- **Con la app abierta**, si yt-dlp, ffmpeg o deno desaparecen, los reinstala con Homebrew. Mientras tanto la cola espera.
-- **Una vez por semana** actualiza yt-dlp en silencio (`brew upgrade yt-dlp`), porque los sitios cambian y las versiones viejas dejan de funcionar. La cola espera a que termine la descarga en curso.
+- **Con la app abierta**, si yt-dlp, gallery-dl, ffmpeg o deno desaparecen, los reinstala con Homebrew. Mientras tanto la cola espera.
+- **Una vez por semana** actualiza yt-dlp y gallery-dl en silencio (`brew upgrade yt-dlp gallery-dl`), porque los sitios cambian y las versiones viejas dejan de funcionar. La cola espera a que termine la descarga en curso.
 - El registro de instalaciones está en `~/Library/Application Support/InstaTray/setup.log`. Las actualizaciones quedan en `instatray.log`.
 
 Para qué sirve cada uno:
 - **`openjdk`:** ejecuta la app. macOS solo trae un stub que no funciona.
-- **`yt-dlp`:** descarga.
+- **`yt-dlp`:** descarga los sitios de video.
+- **`gallery-dl`:** descarga los sitios de artistas (Pixiv, FANBOX, Fantia, DeviantArt, Misskey, Mastodon).
 - **`ffmpeg`:** une el video y el audio, y convierte webm a mp4.
 - **`deno`:** yt-dlp lo necesita para YouTube.
 
@@ -191,6 +216,7 @@ InstaTray/
 | La ventana abre pero la esfera no sale en la barra | En macOS 26, si Java corre como proceso del `.app` (`exec`), el sistema no crea su ícono de barra | El lanzador arranca Java **desacoplado** (`nohup … &`) y termina |
 | El ícono no aparece al primer arranque | macOS pregunta si Java puede leer **Descargas**, y el programa esperaba esa respuesta en el hilo de la interfaz | Las cookies se buscan fuera del hilo de la interfaz. Si aparece el aviso, pulsa **Permitir** |
 | El ícono no avanzaba del 0 % | `--print` pone a yt-dlp en modo silencioso y oculta el progreso | Se pasa `--no-quiet --progress` con una plantilla de progreso propia |
+| gallery-dl no mostraba porcentaje | Cuando su salida va a otro programa usa el modo "pipe", que no imprime progreso | Se fuerza `output.mode=terminal`, `output.shorten=false` y `downloader.progress=0`, y la salida se lee partiendo también en `\r` |
 | Quedaba un `.part` al cancelar | macOS no deja que el programa **liste** `Documentos`, y además yt-dlp recreaba el archivo si se borraba antes de que muriera | Se espera a que yt-dlp termine del todo y se borran por **ruta exacta** los archivos que anunció |
 | "<Sitio> pide sesión" | Cookies vencidas o sin sesión iniciada en ese sitio | Exportar de nuevo las cookies de ese sitio a Descargas |
 | "Ese post no tiene video" | El post solo tiene fotos | Nada que hacer: solo se descargan videos |
@@ -233,6 +259,20 @@ puede ver. Al cancelar desde la cola, InstaTray lo borra.
   - Cancelar a mitad de la descarga borra el `.part` (verificado: 0 restos).
 - **Reintentos:** un enlace falso se reintentó 3 veces en silencio (10 s, 20 s y 30 s) y solo notificó al final.
 - **Silencio:** al abrir no aparece ninguna ventana (verificado con la lista de ventanas). Un segundo doble clic sí la muestra.
+
+## Pruebas de la segunda tanda (gallery-dl, sitios nuevos y tooltip)
+
+- **Enlaces:** 17 formas de enlace de los 10 sitios nuevos se reconocen. Se ignoran 13 páginas: perfiles de Pixiv, Fantia, Misskey, Mastodon, Iwara y Patreon, la galería de DeviantArt, la portada de Newgrounds, el perfil de Weibo y el sitio de re-subidas que no se soporta. Los 39 + 12 casos anteriores siguen igual.
+- **Descargas reales de punta a punta**, todas en mp4 H.264 + AAC:
+  - Mastodon y Misskey (gallery-dl), con posts públicos no marcados como sensibles sacados de sus APIs públicas.
+  - Weibo y Patreon (yt-dlp, post público).
+- **Porcentaje de gallery-dl:** en Mastodon el ícono pasó de la flecha a `2% → 4% → … → 99%`. En Misskey, con 2 en cola, mostró `2` mientras el relleno subía.
+- **Tooltip en vivo:** `YouTube · Big Buck Bunny… — 1% · 14.0 MB/s · quedan 0:17` → `17% · 27.9 MB/s · quedan 0:07` → `35%…`. Al cancelar o terminar vuelve a "sin descargas".
+- **No probado de verdad:**
+  - **Pixiv**, **FANBOX** y **Fantia**: necesitan tu cuenta.
+  - **DeviantArt**: no tenía un enlace público con video.
+  - **Iwara**: el extractor responde, pero el video de prueba era para adultos y no se bajó.
+  - **Newgrounds**: respondió 403 a los 4 enlaces de prueba; hoy bloquea a yt-dlp.
 
 ## Arrancar al iniciar sesión
 
