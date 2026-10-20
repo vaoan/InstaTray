@@ -227,7 +227,7 @@ final class HistoryWindow {
                     case 0 -> columns[0].equals("#") ? String.valueOf(row + 1)
                             : (System.currentTimeMillis() - j.createdAt < 86_400_000L ? today : older)
                                     .format(new Date(j.createdAt));
-                    case 1 -> j.link.site().label;
+                    case 1 -> j.link.label();
                     case 2 -> j.statusText();
                     case 3 -> j.message;
                     default -> j.link.url();

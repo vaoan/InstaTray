@@ -48,7 +48,9 @@ public final class AeroIcon {
         FANTIA(0xFFCCEB, 0xF27ACB, 0xD6219A, 0x6E0C4F),
         DEVIANTART(0xC2F7D3, 0x4FDB85, 0x05A83E, 0x0A3319),
         MISSKEY(0xE8FFBA, 0xBDEB5C, 0x86B300, 0x455C00),
-        MASTODON(0xD4C7FF, 0x9478F5, 0x6364FF, 0x2C2780);
+        MASTODON(0xD4C7FF, 0x9478F5, 0x6364FF, 0x2C2780),
+        // Bronze: any other site (yt-dlp / gallery-dl catch-alls)
+        OTHER(0xF2DEC4, 0xC9A27A, 0x8C6239, 0x4A2F17);
 
         final Color[] colors;
 

@@ -1,7 +1,8 @@
 # InstaTray
 
 App de barra de menú para macOS, escrita en Java. Vigila el portapapeles y, cuando copias un enlace
-de un video de **30 sitios** (Instagram, YouTube, TikTok, X, Twitch, Reddit, Facebook, Pixiv y más), lo descarga
+de un video de **30 sitios** (Instagram, YouTube, TikTok, X, Twitch, Reddit, Facebook, Pixiv y más) **o de cualquier
+otro sitio que yt-dlp sepa bajar** (más de mil: Niconico, SoundCloud, Archive.org…), lo descarga
 en segundo plano con `yt-dlp` o `gallery-dl`, usando las cookies de ese sitio que tengas en Descargas. Si falta
 algo para funcionar (Homebrew, Java, yt-dlp, gallery-dl, ffmpeg, deno), **lo instala solo**. Está hecha para ser **lo más silenciosa posible**:
 arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que falla.
@@ -29,6 +30,7 @@ Todos los íconos son esferas de vidrio estilo Aero (Windows Vista), dibujadas p
 | Bajando de YouTube | **Roja** pareja, de un solo tono, para no confundirla con Instagram |
 | Bajando de X | **Grafito** |
 | Bajando de Twitch | **Morada** |
+| Cualquier otro sitio | **Bronce** |
 | Los otros 26 sitios | Un color propio cada uno. Todos están en `icon-palettes.png`. Algunos se parecen (Facebook, Streamable y LinkedIn son azules); al pasar el mouse se ve el sitio |
 
 - **Relleno:** mientras baja, la esfera está deslavada y se va **llenando de color saturado de abajo hacia arriba** según el porcentaje, con una línea brillante en el nivel.
@@ -84,6 +86,16 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 - **yt-dlp** baja los sitios de video.
 - **gallery-dl** baja los sitios donde los artistas publican su propio trabajo. De cada post se queda solo con los **videos y animaciones** (mp4, webm, mov, gif y ugoira de Pixiv) y salta las imágenes. Si un post solo tiene imágenes, dice "Ese post no tiene video ni animación".
 
+**Cualquier otro sitio ("Otros sitios"):**
+- Si copias un enlace que no es de los 30 sitios, InstaTray **le pregunta a yt-dlp** si sabe bajarlo (tarda ~1 s, solo la primera vez por enlace). Se acepta si yt-dlp tiene un extractor que funciona y que devuelve **un video**, no una lista: los enlaces de canales, perfiles, listas, temporadas o búsquedas se ignoran.
+- Si yt-dlp no lo toma, le pregunta a **gallery-dl**, pero solo para **posts sueltos de plataformas donde los creadores publican su propio trabajo**: ArtStation, Boosty, Cara, Ci-en, Fansly, Flickr, Foriio, Fur Affinity, Inkbunny, Itaku, Lofter, Pexels, Pillowfort, Plurk, Poipiku, Postype, Skeb, SmugMug, SoFurry, SubscribeStar, VK, VSCO, Weasyl, Xfolio y 500px.
+- Los enlaces de los 30 sitios que no sean un video (perfiles, canales, directos) siguen ignorados: no pasan a "Otros sitios".
+- En la cola y el historial aparece el nombre que le da la librería (`Niconico`, `Soundcloud`, `Artstation`…). Con subcarpetas, todo va a `Otros sitios/`.
+- Si un enlace devuelve varios videos (un álbum, un episodio en partes), baja como máximo **10**.
+- **Cookies:** usa el `*cookie*.txt` más nuevo de Descargas cuyo nombre mencione el sitio (p. ej. `nicovideo.jp_cookies.txt`), o una exportación general que tenga cookies de ese dominio. Solo se le pasan las de ese dominio.
+- Si el sitio solo tiene audio (SoundCloud, Bandcamp), se guarda igual como mp4 de solo audio.
+- Que yt-dlp tenga un extractor no garantiza que funcione: algunos están rotos hasta que yt-dlp los arregla (se actualiza solo cada semana).
+
 **Pixiv:**
 - Pixiv no aloja videos normales. Lo animado son *ugoira* (cuadros sin sonido), que se convierten a mp4.
 - Necesita una conexión **única**: menú de la esfera → **Conectar Pixiv…**. Se abre la Terminal con `gallery-dl oauth:pixiv`; inicias sesión en el navegador y pegas el código.
@@ -92,7 +104,7 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 **No soportados:**
 - **Threads:** yt-dlp no tiene extractor.
 - **Netflix, Crunchyroll, Disney+, Spotify y similares:** tienen protección anticopia (DRM).
-- **Sitios que re-suben obras ajenas sin permiso**, aunque gallery-dl los soporte: Kemono, Coomer, nhentai, ExHentai, Hitomi, agregadores de manga y "boorus". Es una decisión a propósito.
+- **Sitios que re-suben obras ajenas sin permiso**, aunque gallery-dl los soporte: Kemono, Coomer, nhentai, ExHentai, Hitomi, agregadores de manga, "boorus" y hosts de archivos. Es una decisión a propósito; por eso gallery-dl solo se usa con la lista de plataformas de creadores de arriba.
 
 **Formato:**
 - Siempre **mp4 H.264 + AAC**, que se reproduce en QuickTime. Lo de gallery-dl que no venga en mp4 (webm, gif) lo convierte InstaTray con ffmpeg.
@@ -273,6 +285,13 @@ puede ver. Al cancelar desde la cola, InstaTray lo borra.
   - **DeviantArt**: no tenía un enlace público con video.
   - **Iwara**: el extractor responde, pero el video de prueba era para adultos y no se bajó.
   - **Newgrounds**: respondió 403 a los 4 enlaces de prueba; hoy bloquea a yt-dlp.
+
+## Pruebas de la tercera tanda (cualquier sitio)
+
+- **Detección:** de 12 enlaces mezclados, se tomaron Niconico, SoundCloud y TED (yt-dlp) y un artwork de ArtStation (gallery-dl). Se ignoraron un canal de YouTube, un canal de Twitch, un perfil de ArtStation, una búsqueda de Google y portadas sueltas. Consulta: ~1 s la primera vez, instantánea después.
+- **Descargas reales:** Niconico `sm9` (mp4 H.264) y una pista de SoundCloud (mp4 de solo audio).
+- **ArtStation:** gallery-dl corrió; el post solo tenía imágenes y dijo "Ese post no tiene video ni animación".
+- **TED:** el extractor de yt-dlp 2026.08.19 está roto ("the JSON object must be str…"); es un problema de yt-dlp, no de InstaTray.
 
 ## Arrancar al iniciar sesión
 

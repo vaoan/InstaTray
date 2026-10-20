@@ -92,7 +92,11 @@ public final class InstaTray {
         FANTIA(Engine.GALLERY_DL, "Fantia", new String[]{"fantia"}, "fantia.jp"),
         DEVIANTART(Engine.GALLERY_DL, "DeviantArt", new String[]{"deviantart"}, "deviantart.com"),
         MISSKEY(Engine.GALLERY_DL, "Misskey", new String[]{"misskey"}, "misskey.io"),
-        MASTODON(Engine.GALLERY_DL, "Mastodon", new String[]{"mastodon", "pawoo"}, "mastodon.social", "pawoo.net");
+        MASTODON(Engine.GALLERY_DL, "Mastodon", new String[]{"mastodon", "pawoo"}, "mastodon.social", "pawoo.net"),
+        // Catch-alls: any other single-video URL yt-dlp has an extractor for, and posts on the creator-owned
+        // platforms gallery-dl knows (CREATOR_PLATFORMS). Detected by asking the libraries (probeLibraries)
+        OTHER("Otros sitios", "%(extractor_key)s_%(title).70B_[%(id)s].%(ext)s", new String[0]),
+        OTHER_GALLERY(Engine.GALLERY_DL, "Otros sitios", new String[0]);
 
         final Engine engine;
         final String label;
@@ -119,18 +123,24 @@ public final class InstaTray {
 
         /** True if a Netscape cookie line belongs to this site (domain or any subdomain). */
         boolean ownsCookieLine(String line) {
-            String domain = line.split("\t", 2)[0].toLowerCase(Locale.ROOT);
-            if (domain.startsWith("#httponly_")) domain = domain.substring("#httponly_".length());
-            if (domain.startsWith(".")) domain = domain.substring(1);
+            return cookieLineIn(line, domains);
+        }
+
+        /** True if the host is this site's (domain or any subdomain). */
+        boolean ownsHost(String host) {
             for (String d : domains) {
-                if (domain.equals(d) || domain.endsWith("." + d)) return true;
+                if (host.equals(d) || host.endsWith("." + d)) return true;
             }
             return false;
         }
 
-        /** Each site has an orb color of the same name. */
+        /** Each site has an orb color of the same name; both catch-alls share OTHER. */
         AeroIcon.Palette palette() {
-            return AeroIcon.Palette.valueOf(name());
+            return isCatchAll() ? AeroIcon.Palette.OTHER : AeroIcon.Palette.valueOf(name());
+        }
+
+        boolean isCatchAll() {
+            return this == OTHER || this == OTHER_GALLERY;
         }
 
         boolean matchesCookieFile(String lowerName) {
@@ -291,6 +301,58 @@ public final class InstaTray {
             // Mastodon status on the instances gallery-dl knows
             rule(Site.MASTODON, "https?://(mastodon\\.social|pawoo\\.net)/@[A-Za-z0-9_]+/(\\d+)",
                     m -> "masto:" + m.group(1) + ":" + m.group(2), InstaTray::clean));
+
+    /** Every site except the two catch-alls. */
+    static final List<Site> NAMED_SITES = Arrays.stream(Site.values()).filter(s -> !s.isCatchAll()).toList();
+
+    /**
+     * gallery-dl categories handled by OTHER_GALLERY: platforms where creators post their own work. Aggregators,
+     * boorus, manga/doujin sites and file hosts that re-host others' work stay out on purpose.
+     */
+    static final List<String> CREATOR_PLATFORMS = List.of(
+            "500px", "artstation", "boosty", "cara", "cien", "fansly", "flickr", "foriio", "furaffinity",
+            "inkbunny", "itaku", "lofter", "pexels", "pillowfort", "plurk", "poipiku", "postype", "skeb",
+            "smugmug", "sofurry", "subscribestar", "vk", "vsco", "weasyl", "xfolio");
+
+    /** Most items a catch-all yt-dlp link may download (an extractor can return an album or a multi-part episode). */
+    private static final int CATCH_ALL_MAX_ITEMS = 10;
+    /** Most unknown URLs checked per clipboard change. */
+    private static final int MAX_PROBED_URLS = 5;
+    private static final Pattern ANY_URL = Pattern.compile("https?://[^\\s<>\"'`]+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_HOST = Pattern.compile("^https?://(?:[^@/?#]*@)?([^/?#:]+)", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Asks yt-dlp which extractor takes each URL (the first suitable one, as yt-dlp itself picks). Accepted:
+     * working extractors that return a single video, or "any" whose name doesn't say playlist/channel/etc.
+     * Prints "ExtractorKey<TAB>id" or "-" per URL.
+     */
+    private static final String YT_DLP_PROBE = """
+            import sys
+            from yt_dlp.extractor import gen_extractor_classes
+            ies = list(gen_extractor_classes())
+            lists = ('playlist', 'user', 'channel', 'tab', 'series', 'season', 'album', 'show', 'search', 'feed')
+            for url in sys.argv[1:]:
+                ie = next((i for i in ies if i.suitable(url)), None)
+                ok = (ie is not None and ie.ie_key() != 'Generic' and ie.working()
+                      and (ie._RETURN_TYPE == 'video'
+                           or ie._RETURN_TYPE == 'any' and not any(w in ie.ie_key().lower() for w in lists)))
+                print(ie.ie_key() + '\t' + str(ie.get_temp_id(url) or '') if ok else '-', flush=True)
+            """;
+
+    /** Asks gallery-dl whether each URL is a single post on one of the platforms in argv[1]. Prints category or "-". */
+    private static final String GALLERY_DL_PROBE = """
+            import sys
+            from gallery_dl import extractor
+            platforms = set(sys.argv[1].split(','))
+            posts = {'post', 'artwork', 'image', 'media', 'submission', 'work', 'article', 'video', 'wall-post'}
+            for url in sys.argv[2:]:
+                try:
+                    ex = extractor.find(url)
+                except Exception:
+                    ex = None
+                ok = ex is not None and ex.category in platforms and ex.subcategory in posts
+                print(ex.category if ok else '-', flush=True)
+            """;
 
     private static final int INSTANCE_PORT = 48623;
 
@@ -503,8 +565,8 @@ public final class InstaTray {
         JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         header.add(new JLabel(new ImageIcon(AeroIcon.render(64))));
         JLabel title = new JLabel("<html><b style='font-size:15px'>InstaTray</b><br>"
-                + "Copia el enlace de un video (Instagram, YouTube, TikTok, X y "
-                + (Site.values().length - 4) + " sitios más) y se descarga solo.</html>");
+                + "Copia el enlace de un video (Instagram, YouTube, TikTok, X, "
+                + (NAMED_SITES.size() - 4) + " sitios más y cualquier otro que yt-dlp reconozca) y se descarga solo.</html>");
         header.add(title);
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
         root.add(header);
@@ -780,7 +842,7 @@ public final class InstaTray {
         if (j == null || j.isFinished()) {
             return pending == 0 ? "InstaTray — sin descargas" : "InstaTray — " + pending + " en cola";
         }
-        StringBuilder sb = new StringBuilder(j.link.site().label);
+        StringBuilder sb = new StringBuilder(j.link.label());
         if (!j.title.isBlank()) sb.append(" · ").append(shorten(j.title, 50));
         sb.append(" — ").append(j.percent >= 0 ? j.percent + "%" : "preparando…");
         if (!j.speed.isBlank()) sb.append(" · ").append(j.speed);
@@ -829,11 +891,11 @@ public final class InstaTray {
 
     private String cookiesLabel() {
         List<String> with = new ArrayList<>();
-        for (Site site : Site.values()) {
+        for (Site site : NAMED_SITES) {
             if (findCookies(site) != null) with.add(site.label);
         }
         return with.isEmpty() ? "Cookies: ninguna en Descargas"
-                : "Cookies: " + String.join(", ", with) + " (" + with.size() + " de " + Site.values().length + " sitios)";
+                : "Cookies: " + String.join(", ", with) + " (" + with.size() + " de " + NAMED_SITES.size() + " sitios)";
     }
 
     // ---------------------------------------------------------------- clipboard
@@ -859,18 +921,31 @@ public final class InstaTray {
         handleText(clip, false);
     }
 
-    /** A supported link found in the clipboard. */
-    record Link(Site site, String key, String url) {}
+    /**
+     * A supported link found in the clipboard. Catch-all keys carry the library's name for the site:
+     * "ytdl:Niconico:sm9" (extractor + id) or "gdl:artstation:URL" (category + URL).
+     */
+    record Link(Site site, String key, String url) {
+        /** What the user sees as the site: the label, or the extractor/category name for catch-alls. */
+        String label() {
+            if (!site.isCatchAll()) return site.label;
+            String[] k = key.split(":", 3);
+            if (k.length < 2 || k[1].isEmpty()) return site.label;
+            return Character.toUpperCase(k[1].charAt(0)) + k[1].substring(1); // gallery-dl categories are lower-case
+        }
+    }
 
     /** Queues every supported link found in the text. Returns true if any link was found. */
     private boolean handleText(String text, boolean force) {
         boolean found = false;
-        for (Link link : findLinks(text)) {
+        List<Link> links = new ArrayList<>(findLinks(text));
+        links.addAll(probeLibraries(otherCandidates(text)));
+        for (Link link : links) {
             found = true;
             String key = link.key();
             if (queued.contains(key)) continue;
             if (done.contains(key) && !force) {
-                setStatus("Ya descargado: " + link.site().label + " " + shortKey(key));
+                setStatus("Ya descargado: " + link.label() + " " + shortKey(key));
                 continue;
             }
             Job job = new Job(link, System.currentTimeMillis());
@@ -892,7 +967,7 @@ public final class InstaTray {
         job.clearOutput();
         if (activeSite == null) activeSite = job.link.site();
         updateTrayIcon();
-        setStatus("En cola: " + job.link.site().label + " " + shortKey(job.link.key()));
+        setStatus("En cola: " + job.link.label() + " " + shortKey(job.link.key()));
         saveJobs();
         synchronized (pending) {
             pending.addLast(job);
@@ -1175,7 +1250,129 @@ public final class InstaTray {
         return links;
     }
 
+    /**
+     * URLs in the text that no rule matched and that don't belong to a known site (their profiles, channels and
+     * live pages must stay ignored), skipping bare home pages. These are the ones worth asking the libraries about.
+     */
+    static List<String> otherCandidates(String text) {
+        List<String> out = new ArrayList<>();
+        Matcher m = ANY_URL.matcher(text);
+        while (m.find() && out.size() < MAX_PROBED_URLS) {
+            String url = m.group().replaceFirst("[.,;:!?)\\]}>]+$", "");
+            String host = host(url);
+            if (host.isEmpty() || out.contains(url)) continue;
+            if (RULES.stream().anyMatch(r -> r.pattern().matcher(url).find())) continue;
+            if (NAMED_SITES.stream().anyMatch(s -> s.ownsHost(host))) continue;
+            if (url.substring(m.group().indexOf(host) + host.length()).replaceAll("[/?#]", "").isEmpty()) continue;
+            out.add(url);
+        }
+        return out;
+    }
+
+    /** Lower-case host without "www.", or "" if the text isn't a URL. */
+    static String host(String url) {
+        Matcher m = URL_HOST.matcher(url);
+        return m.find() ? m.group(1).toLowerCase(Locale.ROOT).replaceFirst("^www\\.", "") : "";
+    }
+
+    /** Registrable domain: "nicovideo.jp" for "sp.nicovideo.jp", "bbc.co.uk" for "www.bbc.co.uk". */
+    static String baseDomain(String host) {
+        String[] l = host.split("\\.");
+        if (l.length < 3) return host;
+        boolean secondLevel = l[l.length - 1].length() == 2
+                && Set.of("co", "com", "net", "org", "ac", "gov", "edu", "ne", "or", "go").contains(l[l.length - 2]);
+        int keep = secondLevel ? 3 : 2;
+        return String.join(".", Arrays.copyOfRange(l, l.length - keep, l.length));
+    }
+
+    /** Library answers per URL; empty = not supported. Only complete answers are cached. */
+    private final Map<String, Optional<Link>> probeCache = new ConcurrentHashMap<>();
+
+    /** Catch-all links for the URLs: first whatever yt-dlp takes, then creator-platform posts gallery-dl takes. */
+    List<Link> probeLibraries(List<String> urls) {
+        List<String> todo = urls.stream().filter(u -> !probeCache.containsKey(u)).toList();
+        if (!todo.isEmpty()) {
+            if (probeCache.size() > 1000) probeCache.clear();
+            List<String> ytdl = runProbe("yt-dlp", YT_DLP_PROBE, List.of(), todo);
+            List<String> rest = new ArrayList<>();
+            for (int i = 0; i < todo.size(); i++) {
+                String url = todo.get(i);
+                String r = ytdl == null ? "-" : ytdl.get(i);
+                if (r.equals("-")) {
+                    rest.add(url);
+                    continue;
+                }
+                String[] f = r.split("\t", 2);
+                String id = f.length > 1 && !f[1].isBlank() ? f[1] : Integer.toHexString(url.hashCode());
+                probeCache.put(url, Optional.of(new Link(Site.OTHER, "ytdl:" + f[0] + ":" + id, url)));
+            }
+            List<String> gdl = rest.isEmpty() ? List.of()
+                    : runProbe("gallery-dl", GALLERY_DL_PROBE, List.of(String.join(",", CREATOR_PLATFORMS)), rest);
+            for (int i = 0; i < rest.size() && gdl != null && ytdl != null; i++) {
+                String url = rest.get(i);
+                String r = gdl.get(i);
+                probeCache.put(url, r.equals("-") ? Optional.empty()
+                        : Optional.of(new Link(Site.OTHER_GALLERY, "gdl:" + r + ":" + url, url)));
+            }
+            if (gdl != null && ytdl == null) { // yt-dlp couldn't answer: keep gallery-dl's hits, retry the rest later
+                for (int i = 0; i < rest.size(); i++) {
+                    if (!gdl.get(i).equals("-")) {
+                        probeCache.put(rest.get(i), Optional.of(new Link(Site.OTHER_GALLERY,
+                                "gdl:" + gdl.get(i) + ":" + rest.get(i), rest.get(i))));
+                    }
+                }
+            }
+        }
+        List<Link> links = new ArrayList<>();
+        for (String u : urls) {
+            Optional<Link> l = probeCache.get(u);
+            if (l != null && l.isPresent()) links.add(l.get());
+        }
+        return links;
+    }
+
+    /** Runs a probe script with the library's own Python; one output line per URL, or null if it failed. */
+    private static List<String> runProbe(String tool, String script, List<String> args, List<String> urls) {
+        String python = libraryPython(tool);
+        if (python == null) return null;
+        List<String> cmd = new ArrayList<>(List.of(python, "-I", "-c", script));
+        cmd.addAll(args);
+        cmd.addAll(urls);
+        try {
+            Process p = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            CompletableFuture.delayedExecutor(20, TimeUnit.SECONDS).execute(p::destroyForcibly);
+            List<String> out = new ArrayList<>();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) out.add(line.strip());
+            }
+            if (p.waitFor() == 0 && out.size() == urls.size()) return out;
+            log("Probe " + tool + " failed (exit " + p.exitValue() + ", " + out.size() + " answers)");
+        } catch (Exception e) {
+            log("Probe " + tool + " failed: " + e);
+        }
+        return null;
+    }
+
+    /** The interpreter in the Homebrew formula's shebang (its private venv), or null. */
+    private static String libraryPython(String tool) {
+        String bin = findBin(tool);
+        if (bin == null) return null;
+        try (BufferedReader r = Files.newBufferedReader(Paths.get(bin).toRealPath(), StandardCharsets.UTF_8)) {
+            String first = r.readLine();
+            if (first == null || !first.startsWith("#!")) return null;
+            String python = first.substring(2).trim();
+            return Files.isExecutable(Paths.get(python)) ? python : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private static String shortKey(String key) {
+        if (key.startsWith("ytdl:")) return key.split(":", 3)[2];
+        if (key.startsWith("gdl:")) { // last path segment of the post URL
+            return key.split(":", 3)[2].replaceFirst("[?#].*$", "").replaceFirst("/+$", "").replaceFirst("^.*/", "");
+        }
         return key.substring(key.indexOf(':') + 1);
     }
 
@@ -1184,7 +1381,7 @@ public final class InstaTray {
     private void download(Job job) {
         Link link = job.link;
         Site site = link.site();
-        String name = site.label + " " + shortKey(link.key());
+        String name = link.label() + " " + shortKey(link.key());
         Path outDir = outDir(site);
         job.cancelRequested = false;
         job.title = "";
@@ -1200,7 +1397,8 @@ public final class InstaTray {
                 return;
             }
             Files.createDirectories(outDir);
-            Path cookies = findCookies(site);
+            String[] cookieDomains = site.isCatchAll() ? new String[]{baseDomain(host(link.url()))} : site.domains;
+            Path cookies = site.isCatchAll() ? findCookiesForDomain(cookieDomains[0]) : findCookies(site);
             activeSite = site;
             // gallery-dl prints no percentage while it reads the post: until then the site-colored orb shows the arrow
             activePercent = gallery ? -1 : 0;
@@ -1240,11 +1438,13 @@ public final class InstaTray {
                     "--no-simulate"));
             String ffmpeg = findBin("ffmpeg");
             if (ffmpeg != null && !gallery) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
+            // a catch-all extractor may hand back a list (album, episode with parts): cap it
+            if (site == Site.OTHER) cmd.addAll(List.of("--playlist-items", "1:" + CATCH_ALL_MAX_ITEMS));
             if (cookies != null) {
                 // yt-dlp rewrites the cookie jar on exit, so it gets a copy holding only this site's cookies:
                 // the original stays intact and a full-browser export never leaks other sites' sessions
                 Path tmpCookies = STATE_DIR.resolve("cookies-session.txt");
-                writeSiteCookies(cookies, tmpCookies, site);
+                writeDomainCookies(cookies, tmpCookies, cookieDomains);
                 cmd.addAll(List.of("--cookies", tmpCookies.toString()));
             }
             cmd.add(link.url());
@@ -1357,7 +1557,7 @@ public final class InstaTray {
                     msg = "Pixiv pide conectar tu cuenta: menú de la esfera → Conectar Pixiv…";
                 } else if (gallery && (all.contains("403") || all.contains("401") || all.contains("login")
                         || all.contains("Forbidden") || all.contains("cookies"))) {
-                    msg = site.label + " pide sesión: exporta cookies nuevas de " + site.label + " a Descargas";
+                    msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
                 } else if (all.contains("404") || all.contains("NotFound") || all.contains("not found")) {
                     msg = "No existe, se borró o es privado";
                 } else if (exit == 0 || msg.contains("is_live")) {
@@ -1366,7 +1566,7 @@ public final class InstaTray {
                     msg = "Ese post no tiene video";
                 } else if ((msg.contains("login") || msg.contains("cookies") || msg.contains("Sign in"))
                         && !msg.contains("rate-limit")) {
-                    msg = site.label + " pide sesión: exporta cookies nuevas de " + site.label + " a Descargas";
+                    msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
                 } else {
                     permanent = false; // network, rate limits, server errors: worth retrying
                     if (msg.startsWith("ERROR: ")) msg = msg.substring("ERROR: ".length());
@@ -1512,6 +1712,39 @@ public final class InstaTray {
         return null;
     }
 
+    /**
+     * Cookies for a catch-all site: the newest *cookie*.txt in ~/Downloads whose name mentions the domain
+     * (nicovideo for nicovideo.jp) and holds cookies for it; otherwise a general export (not named after one
+     * of the known sites) that does.
+     */
+    static Path findCookiesForDomain(String domain) {
+        String key = domain.split("\\.")[0];
+        List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(DOWNLOADS, "*.txt")) {
+            for (Path p : ds) {
+                if (p.getFileName().toString().toLowerCase(Locale.ROOT).contains("cookie")) files.add(p);
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        files.sort(Comparator.comparingLong(InstaTray::modifiedTime).reversed());
+        for (Path p : files) {
+            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+            if (name.contains(key) && hasDomainCookies(p, domain)) return p;
+        }
+        for (Path p : files) {
+            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+            boolean namedSite = NAMED_SITES.stream().anyMatch(s -> s.matchesCookieFile(name));
+            if (!namedSite && hasDomainCookies(p, domain)) return p;
+        }
+        return null;
+    }
+
+    /** Where the user should export cookies from, as shown in messages. */
+    private static String cookieSource(Link link) {
+        return link.site().isCatchAll() ? baseDomain(host(link.url())) : link.site().label;
+    }
+
     private static long modifiedTime(Path p) {
         try {
             return Files.getLastModifiedTime(p).toMillis();
@@ -1521,11 +1754,26 @@ public final class InstaTray {
     }
 
     private static boolean hasSiteCookies(Path file, Site site) {
+        return hasDomainCookies(file, site.domains);
+    }
+
+    private static boolean hasDomainCookies(Path file, String... domains) {
         try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
-            return lines.anyMatch(l -> isCookieLine(l) && site.ownsCookieLine(l));
+            return lines.anyMatch(l -> isCookieLine(l) && cookieLineIn(l, domains));
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** True if a Netscape cookie line belongs to one of the domains (or any subdomain). */
+    static boolean cookieLineIn(String line, String... domains) {
+        String domain = line.split("\t", 2)[0].toLowerCase(Locale.ROOT);
+        if (domain.startsWith("#httponly_")) domain = domain.substring("#httponly_".length());
+        if (domain.startsWith(".")) domain = domain.substring(1);
+        for (String d : domains) {
+            if (domain.equals(d) || domain.endsWith("." + d)) return true;
+        }
+        return false;
     }
 
     private static boolean isCookieLine(String line) {
@@ -1534,10 +1782,15 @@ public final class InstaTray {
 
     /** Writes a Netscape cookie file with only the site's cookies. */
     static void writeSiteCookies(Path src, Path dst, Site site) throws IOException {
+        writeDomainCookies(src, dst, site.domains);
+    }
+
+    /** Writes a Netscape cookie file with only the cookies of these domains. */
+    static void writeDomainCookies(Path src, Path dst, String... domains) throws IOException {
         List<String> out = new ArrayList<>();
         out.add("# Netscape HTTP Cookie File");
         for (String line : Files.readAllLines(src, StandardCharsets.UTF_8)) {
-            if (isCookieLine(line) && site.ownsCookieLine(line)) out.add(line);
+            if (isCookieLine(line) && cookieLineIn(line, domains)) out.add(line);
         }
         Files.write(dst, out, StandardCharsets.UTF_8);
     }

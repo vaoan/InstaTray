@@ -3,7 +3,8 @@
 macOS menu-bar app (Java/AWT + Swing) that watches the clipboard for video links of 30 sites (`enum Site` +
 `RULES` table in InstaTray.java) and downloads them through its own ordered queue with one of two engines
 (`Site.engine`): yt-dlp for video sites, gallery-dl for artists' own platforms (Pixiv, FANBOX, Fantia, DeviantArt,
-Misskey, Mastodon). Each site uses the newest `*cookie*.txt` in
+Misskey, Mastodon). Two catch-all sites (`OTHER` = yt-dlp, `OTHER_GALLERY` = gallery-dl limited to
+`CREATOR_PLATFORMS`) take any other URL the libraries accept; see "Catch-all sites" below. Each site uses the newest `*cookie*.txt` in
 `~/Downloads` whose name mentions it (`enum Site`). Output: one folder, default `~/Documents/Videos`, user-changeable,
 optional per-site subfolders. History keys are `ig:`, `yt:`, `x:`, `twclip:`, `twvod:` + id.
 User-facing docs (Spanish) are in README.md — keep it in sync with every feature change.
@@ -37,6 +38,17 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Pixiv needs `gallery-dl oauth:pixiv` once (token cached by gallery-dl); tray menu "Conectar Pixiv…" opens Terminal.
 - Deliberately NOT supported (re-host others' work without permission): Kemono, Coomer, nhentai, ExHentai, Hitomi,
   manga aggregators (e.g. myreadingmanga), boorus. The user asked for myreadingmanga twice; it was declined.
+
+## Catch-all sites
+- `otherCandidates()` picks URLs no rule matched and whose host isn't a named site's (so profiles/channels/live
+  pages of named sites stay ignored), skipping bare home pages; max 5 per clipboard change.
+- `probeLibraries()` runs `YT_DLP_PROBE` / `GALLERY_DL_PROBE` with each formula's own Python (shebang of the
+  Homebrew script, `-I`), cached per URL. yt-dlp: first suitable extractor (as yt-dlp picks), not Generic, `working()`,
+  `_RETURN_TYPE` "video", or "any" without playlist/user/channel/tab/… in its name. gallery-dl: category in
+  `CREATOR_PLATFORMS` and a single-post subcategory. Never widen gallery-dl past creator platforms (policy below).
+- Keys: `ytdl:<ExtractorKey>:<id>` (id = `get_temp_id`, else URL hash) and `gdl:<category>:<url>`; `Link.label()`
+  shows the extractor/category. Cookies by registrable domain (`baseDomain`, `findCookiesForDomain`).
+  `OTHER` adds `--playlist-items 1:10`.
 
 ## Adding a site
 1. `Site` entry (engine, label, yt-dlp filename template, cookie-file keys — keys with a dot must start the file name —,
