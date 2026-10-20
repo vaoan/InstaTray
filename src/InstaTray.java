@@ -1,0 +1,1430 @@
+import java.awt.*;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.regex.*;
+import java.util.List;
+import java.util.function.Function;
+import java.util.LinkedList;
+import java.awt.desktop.AppReopenedListener;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JList;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.WindowConstants;
+
+/**
+ * macOS menu-bar (tray) app that watches the clipboard for Instagram, YouTube,
+ * X and Twitch video links and downloads them in the background with yt-dlp,
+ * using each site's cookies.txt found in ~/Downloads.
+ * Videos are saved to ~/Documents/<Site> Videos.
+ */
+public final class InstaTray {
+
+    private static final Path HOME = Paths.get(System.getProperty("user.home"));
+    private static final Path DOWNLOADS = HOME.resolve("Downloads");
+    private static final Path STATE_DIR = HOME.resolve("Library/Application Support/InstaTray");
+    private static final Path HISTORY = STATE_DIR.resolve("downloaded.txt");
+    private static final Path SETTINGS = STATE_DIR.resolve("settings.properties");
+    private static final Path JOBS = STATE_DIR.resolve("jobs.tsv");
+    private static final int MAX_JOBS = 200;
+    private static final Path LOG = STATE_DIR.resolve("instatray.log");
+
+    private static final String TITLED = "%(title).80B_[%(id)s].%(ext)s";
+
+    enum Site {
+        INSTAGRAM("Instagram", "%(channel,uploader|instagram)s_%(id)s_%(autonumber)02d.%(ext)s",
+                new String[]{"instagram"}, "instagram.com"),
+        YOUTUBE("YouTube", TITLED, new String[]{"youtube"}, "youtube.com"),
+        TIKTOK("TikTok", "%(uploader|tiktok)s_%(id)s.%(ext)s", new String[]{"tiktok"}, "tiktok.com"),
+        X("X", "%(uploader_id|x)s_%(id)s.%(ext)s", new String[]{"x.com", "twitter"}, "x.com", "twitter.com"),
+        TWITCH("Twitch", TITLED, new String[]{"twitch"}, "twitch.tv"),
+        REDDIT("Reddit", TITLED, new String[]{"reddit"}, "reddit.com", "redd.it"),
+        FACEBOOK("Facebook", "%(uploader|facebook)s_%(id)s.%(ext)s", new String[]{"facebook"},
+                "facebook.com", "fb.watch"),
+        PINTEREST("Pinterest", "pinterest_%(id)s.%(ext)s", new String[]{"pinterest"}, "pinterest.com", "pin.it"),
+        BLUESKY("Bluesky", "%(uploader_id|bluesky)s_%(id)s.%(ext)s", new String[]{"bsky"}, "bsky.app"),
+        KICK("Kick", TITLED, new String[]{"kick.com"}, "kick.com"),
+        VIMEO("Vimeo", TITLED, new String[]{"vimeo"}, "vimeo.com"),
+        DAILYMOTION("Dailymotion", TITLED, new String[]{"dailymotion"}, "dailymotion.com"),
+        RUMBLE("Rumble", TITLED, new String[]{"rumble"}, "rumble.com"),
+        STREAMABLE("Streamable", TITLED, new String[]{"streamable"}, "streamable.com"),
+        IMGUR("Imgur", "imgur_%(id)s.%(ext)s", new String[]{"imgur"}, "imgur.com"),
+        NINEGAG("9GAG", TITLED, new String[]{"9gag"}, "9gag.com"),
+        TUMBLR("Tumblr", "%(uploader_id|tumblr)s_%(id)s.%(ext)s", new String[]{"tumblr"}, "tumblr.com"),
+        LINKEDIN("LinkedIn", TITLED, new String[]{"linkedin"}, "linkedin.com"),
+        SNAPCHAT("Snapchat", "snapchat_%(id)s.%(ext)s", new String[]{"snapchat"}, "snapchat.com"),
+        BILIBILI("Bilibili", TITLED, new String[]{"bilibili"}, "bilibili.com");
+
+        final String label;
+        final String template;
+        private final String[] cookieKeys;
+        private final String[] domains;
+
+        Site(String label, String template, String[] cookieKeys, String... domains) {
+            this.label = label;
+            this.template = template;
+            this.cookieKeys = cookieKeys;
+            this.domains = domains;
+        }
+
+        /** True if a Netscape cookie line belongs to this site (domain or any subdomain). */
+        boolean ownsCookieLine(String line) {
+            String domain = line.split("\t", 2)[0].toLowerCase(Locale.ROOT);
+            if (domain.startsWith("#httponly_")) domain = domain.substring("#httponly_".length());
+            if (domain.startsWith(".")) domain = domain.substring(1);
+            for (String d : domains) {
+                if (domain.equals(d) || domain.endsWith("." + d)) return true;
+            }
+            return false;
+        }
+
+        /** Each site has an orb color of the same name. */
+        AeroIcon.Palette palette() {
+            return AeroIcon.Palette.valueOf(name());
+        }
+
+        boolean matchesCookieFile(String lowerName) {
+            for (String k : cookieKeys) {
+                // keys with a dot are whole domains ("x.com", "kick.com"): they must start the file name,
+                // so "netflix.com_cookies.txt" is not taken for X
+                boolean hit = k.contains(".")
+                        ? lowerName.matches("(?:www\\.)?" + Pattern.quote(k) + ".*")
+                        : lowerName.contains(k);
+                if (hit) return true;
+            }
+            return false;
+        }
+    }
+
+    /**
+     * How a supported link is recognized: only URLs of a single video/post are matched, never profiles,
+     * channels or live pages, so copying a profile can't start hundreds of downloads.
+     *
+     * @param key the history key (site prefix + id) used to skip repeats
+     * @param url the clean URL handed to yt-dlp (tracking parameters dropped)
+     */
+    record LinkRule(Site site, Pattern pattern, Function<Matcher, String> key, Function<Matcher, String> url) {}
+
+    private static final String SUB = "(?:[a-z0-9-]+\\.)*"; // any subdomain: www., m., old., co. …
+
+    private static LinkRule rule(Site site, String regex, Function<Matcher, String> key, Function<Matcher, String> url) {
+        return new LinkRule(site, Pattern.compile(regex, Pattern.CASE_INSENSITIVE), key, url);
+    }
+
+    /** The matched URL without query string or fragment. */
+    private static String clean(Matcher m) {
+        return m.group(0).replaceFirst("[?#].*$", "");
+    }
+
+    static final List<LinkRule> RULES = List.of(
+            // Instagram reel / post / tv, with or without the user in the path, and kk/dd/ig mirrors
+            rule(Site.INSTAGRAM, "https?://" + SUB + "(?:kk|dd|ig)?instagram\\.com/(?:[A-Za-z0-9_.]+/)?(reels?|p|tv)/([A-Za-z0-9_-]+)",
+                    m -> "ig:" + m.group(2),
+                    m -> "https://www.instagram.com/" + m.group(1).toLowerCase(Locale.ROOT).replace("reels", "reel") + "/" + m.group(2) + "/"),
+            // YouTube watch / shorts / live (finished) / embed, youtu.be
+            rule(Site.YOUTUBE, "https?://(?:" + SUB + "youtube\\.com/(?:watch\\?(?:\\S*?&)?v=|shorts/|live/|embed/)|youtu\\.be/)([A-Za-z0-9_-]{11})",
+                    m -> "yt:" + m.group(1), m -> "https://www.youtube.com/watch?v=" + m.group(1)),
+            // TikTok video page and short links
+            rule(Site.TIKTOK, "https?://" + SUB + "tiktok\\.com/@([A-Za-z0-9_.-]+)/video/(\\d+)",
+                    m -> "tt:" + m.group(2), m -> "https://www.tiktok.com/@" + m.group(1) + "/video/" + m.group(2)),
+            rule(Site.TIKTOK, "https?://(?:vm|vt)\\.tiktok\\.com/([A-Za-z0-9]+)",
+                    m -> "tt:short:" + m.group(1), m -> clean(m) + "/"),
+            rule(Site.TIKTOK, "https?://" + SUB + "tiktok\\.com/t/([A-Za-z0-9]+)",
+                    m -> "tt:short:" + m.group(1), m -> clean(m) + "/"),
+            // X / Twitter and fxtwitter / vxtwitter / fixupx mirrors
+            rule(Site.X, "https?://" + SUB + "(?:x|twitter|fxtwitter|vxtwitter|fixupx|fixvx)\\.com/([A-Za-z0-9_]+)/status(?:es)?/(\\d+)",
+                    m -> "x:" + m.group(2), m -> "https://x.com/" + m.group(1) + "/status/" + m.group(2)),
+            // Twitch clips and past broadcasts (bare channel URLs are live and ignored on purpose)
+            rule(Site.TWITCH, "https?://(?:clips\\.twitch\\.tv/|" + SUB + "twitch\\.tv/[A-Za-z0-9_]+/clip/)([A-Za-z0-9_-]+)",
+                    m -> "twclip:" + m.group(1), m -> "https://clips.twitch.tv/" + m.group(1)),
+            rule(Site.TWITCH, "https?://" + SUB + "twitch\\.tv/videos/(\\d+)",
+                    m -> "twvod:" + m.group(1), m -> "https://www.twitch.tv/videos/" + m.group(1)),
+            // Reddit post, share link (/s/), redd.it and v.redd.it
+            rule(Site.REDDIT, "https?://" + SUB + "reddit\\.com/r/([A-Za-z0-9_]+)/comments/([a-z0-9]+)",
+                    m -> "rd:" + m.group(2), m -> "https://www.reddit.com/r/" + m.group(1) + "/comments/" + m.group(2) + "/"),
+            rule(Site.REDDIT, "https?://" + SUB + "reddit\\.com/r/[A-Za-z0-9_]+/s/([A-Za-z0-9]+)",
+                    m -> "rd:s:" + m.group(1), InstaTray::clean),
+            rule(Site.REDDIT, "https?://v\\.redd\\.it/([a-z0-9]+)", m -> "rd:v:" + m.group(1), InstaTray::clean),
+            rule(Site.REDDIT, "https?://redd\\.it/([a-z0-9]+)", m -> "rd:" + m.group(1), InstaTray::clean),
+            // Facebook watch, reel, /videos/, share links and fb.watch
+            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/watch/?\\?(?:\\S*?&)?v=(\\d+)",
+                    m -> "fb:" + m.group(1), m -> "https://www.facebook.com/watch/?v=" + m.group(1)),
+            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/reel/(\\d+)",
+                    m -> "fb:" + m.group(1), m -> "https://www.facebook.com/reel/" + m.group(1)),
+            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/[A-Za-z0-9.]+/videos/(?:[^/\\s?#]+/)?(\\d+)",
+                    m -> "fb:" + m.group(1), InstaTray::clean),
+            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/share/[vr]/([A-Za-z0-9]+)",
+                    m -> "fb:s:" + m.group(1), InstaTray::clean),
+            rule(Site.FACEBOOK, "https?://fb\\.watch/([A-Za-z0-9_-]+)", m -> "fb:w:" + m.group(1), InstaTray::clean),
+            // Pinterest pin (any country domain) and pin.it short links
+            rule(Site.PINTEREST, "https?://" + SUB + "pinterest\\.[a-z]{2,3}(?:\\.[a-z]{2})?/pin/(\\d+)",
+                    m -> "pin:" + m.group(1), m -> "https://www.pinterest.com/pin/" + m.group(1) + "/"),
+            rule(Site.PINTEREST, "https?://pin\\.it/([A-Za-z0-9]+)", m -> "pin:s:" + m.group(1), InstaTray::clean),
+            // Bluesky post
+            rule(Site.BLUESKY, "https?://bsky\\.app/profile/([^/\\s]+)/post/([a-z0-9]+)",
+                    m -> "bsky:" + m.group(2), m -> "https://bsky.app/profile/" + m.group(1) + "/post/" + m.group(2)),
+            // Kick clips (path or ?clip=) and past broadcasts; channel pages are live and ignored
+            rule(Site.KICK, "https?://" + SUB + "kick\\.com/([A-Za-z0-9_-]+)(?:/clips/|\\?clip=)(clip_[A-Za-z0-9]+)",
+                    m -> "kick:" + m.group(2), m -> "https://kick.com/" + m.group(1) + "/clips/" + m.group(2)),
+            rule(Site.KICK, "https?://" + SUB + "kick\\.com/(?:video|[A-Za-z0-9_-]+/videos)/([0-9a-f-]{36})",
+                    m -> "kick:" + m.group(1), InstaTray::clean),
+            // Vimeo video (optional private hash) and player embeds
+            rule(Site.VIMEO, "https?://(?:www\\.|player\\.)?vimeo\\.com/(?:video/)?(\\d{5,})(?:/([0-9a-f]{6,}))?",
+                    m -> "vimeo:" + m.group(1),
+                    m -> "https://vimeo.com/" + m.group(1) + (m.group(2) != null ? "/" + m.group(2) : "")),
+            // Dailymotion video and dai.ly
+            rule(Site.DAILYMOTION, "https?://(?:" + SUB + "dailymotion\\.com/video/|dai\\.ly/)([a-z0-9]+)",
+                    m -> "dm:" + m.group(1), m -> "https://www.dailymotion.com/video/" + m.group(1)),
+            // Rumble video page and embed
+            rule(Site.RUMBLE, "https?://" + SUB + "rumble\\.com/(v[a-z0-9]+)-[^\\s?#]*\\.html",
+                    m -> "rumble:" + m.group(1), InstaTray::clean),
+            rule(Site.RUMBLE, "https?://" + SUB + "rumble\\.com/embed/(v[a-z0-9]+)",
+                    m -> "rumble:" + m.group(1), m -> "https://rumble.com/embed/" + m.group(1) + "/"),
+            // Streamable video (short id; site pages like /login are excluded)
+            rule(Site.STREAMABLE, "https?://" + SUB + "streamable\\.com/(?:[eo]/)?"
+                            + "(?!(?:login|signup|upload|settings|pricing|about|privacy|terms|blog|careers|documents?)\\b)"
+                            + "([a-z0-9]{4,10})(?![a-z0-9/])",
+                    m -> "streamable:" + m.group(1), m -> "https://streamable.com/" + m.group(1)),
+            // Imgur post, gallery, album or direct video file
+            rule(Site.IMGUR, "https?://(?:i\\.)?imgur\\.com/(?:(?:gallery|a|t/[a-z0-9_]+)/)?"
+                            + "(?!(?:upload|signin|register|user|search|hot|new|top|about|privacy|rules)\\b)"
+                            + "([A-Za-z0-9]{5,8})(?:\\.(?:mp4|gifv|webm))?(?![A-Za-z0-9/])",
+                    m -> "imgur:" + m.group(1), InstaTray::clean),
+            // 9GAG post
+            rule(Site.NINEGAG, "https?://" + SUB + "9gag\\.com/gag/([A-Za-z0-9]+)",
+                    m -> "9gag:" + m.group(1), m -> "https://9gag.com/gag/" + m.group(1)),
+            // Tumblr post: blog.tumblr.com/post/ID or tumblr.com/blog/ID
+            rule(Site.TUMBLR, "https?://([a-z0-9-]+)\\.tumblr\\.com/post/(\\d+)",
+                    m -> "tumblr:" + m.group(2), m -> "https://" + m.group(1) + ".tumblr.com/post/" + m.group(2)),
+            rule(Site.TUMBLR, "https?://(?:www\\.)?tumblr\\.com/([a-z0-9-]+)/(\\d+)",
+                    m -> "tumblr:" + m.group(2), m -> "https://" + m.group(1) + ".tumblr.com/post/" + m.group(2)),
+            // LinkedIn post (the only URL form yt-dlp supports)
+            rule(Site.LINKEDIN, "https?://" + SUB + "linkedin\\.com/posts/[^\\s?#/]*?-(\\d{15,})-[A-Za-z0-9_-]{2,}",
+                    m -> "li:" + m.group(1), InstaTray::clean),
+            // Snapchat public Spotlight
+            rule(Site.SNAPCHAT, "https?://" + SUB + "snapchat\\.com/spotlight/([A-Za-z0-9_-]+)",
+                    m -> "snap:" + m.group(1), InstaTray::clean),
+            // Bilibili video (BV / av ids) and b23.tv short links
+            rule(Site.BILIBILI, "https?://" + SUB + "bilibili\\.com/video/(BV[A-Za-z0-9]+|av\\d+)",
+                    m -> "bili:" + m.group(1), m -> "https://www.bilibili.com/video/" + m.group(1) + "/"),
+            rule(Site.BILIBILI, "https?://b23\\.tv/([A-Za-z0-9]+)", m -> "bili:s:" + m.group(1), InstaTray::clean));
+
+    private static final int INSTANCE_PORT = 48623;
+
+    private static final String[] BIN_DIRS = {"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"};
+
+    /** Waiting jobs in download order (includes automatic retries waiting for their delay). Guarded by itself. */
+    private final LinkedList<Job> pending = new LinkedList<>();
+    private volatile Job current;
+    private volatile Process currentProcess;
+    private volatile boolean paused = false;
+    /** True while Homebrew installs/upgrades tools: the queue waits so yt-dlp is never replaced mid-download. */
+    private volatile boolean toolsBusy = false;
+    private static final long UPGRADE_EVERY_MS = 7L * 24 * 3600 * 1000;
+    private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "clipboard");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final Set<String> done = ConcurrentHashMap.newKeySet();
+    private final Set<String> queued = ConcurrentHashMap.newKeySet();
+    private volatile boolean watching = true;
+    /** Site currently downloading (or about to); drives the tray icon color. Null when idle. */
+    private volatile Site activeSite;
+    private final Map<String, BufferedImage> iconCache = new ConcurrentHashMap<>();
+    private volatile String lastIconKey = "IDLE:null:-1";
+    /** Progress of the current download, 0..100, or -1 when unknown. */
+    private volatile int activePercent = -1;
+    private volatile String lastClip = "";
+    /** Newest first. Guarded by itself. */
+    private final List<Job> jobs = new ArrayList<>();
+    private HistoryWindow history;
+
+    private TrayIcon trayIcon;
+    private MenuItem statusItem;
+    private MenuItem cookiesItem;
+    private CheckboxMenuItem watchItem;
+    private CheckboxMenuItem notifyItem;
+    private JFrame window;
+    private JLabel winStatus;
+    private JLabel winCookies;
+    private JCheckBox winWatch;
+    private JCheckBox winNotify;
+    private volatile boolean notifications = true;
+    private static final Path DEFAULT_VIDEOS_DIR = HOME.resolve("Documents").resolve("Videos");
+    private volatile Path videosDir = DEFAULT_VIDEOS_DIR;
+    /** One subfolder per site (Videos/Instagram, Videos/YouTube…) instead of everything together. */
+    private volatile boolean subfolders = false;
+    private JLabel winFolder;
+    private JCheckBox winSubfolders;
+    private CheckboxMenuItem subfoldersItem;
+    private CheckboxMenuItem pauseItem;
+    private volatile int maxRetries = 2;
+    private volatile int retryDelaySec = 30;
+    private static final Integer[] RETRY_DELAYS = {10, 30, 60, 300};
+
+    public static void main(String[] args) throws Exception {
+        System.setProperty("apple.awt.UIElement", "true"); // no Dock icon
+        if (!SystemTray.isSupported()) {
+            System.err.println("System tray not supported");
+            System.exit(1);
+        }
+        // Single instance: if another copy is running, ask it to show its window and quit
+        ServerSocket server;
+        try {
+            server = new ServerSocket(INSTANCE_PORT, 5, InetAddress.getLoopbackAddress());
+        } catch (IOException alreadyRunning) {
+            try (Socket s = new Socket(InetAddress.getLoopbackAddress(), INSTANCE_PORT)) {
+                s.getOutputStream().write('\n');
+            } catch (IOException ignored) {
+            }
+            System.exit(0);
+            return;
+        }
+        InstaTray app = new InstaTray();
+        app.start();
+        app.listenForOtherInstances(server);
+    }
+
+    private void start() throws Exception {
+        Files.createDirectories(STATE_DIR);
+        Files.createDirectories(Paths.get(loadSettings().getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString())));
+        Files.createDirectories(STATE_DIR);
+        if (Files.exists(HISTORY)) {
+            done.addAll(Files.readAllLines(HISTORY, StandardCharsets.UTF_8));
+        }
+        Properties settings = loadSettings();
+        notifications = Boolean.parseBoolean(settings.getProperty("notifications", "true"));
+        subfolders = Boolean.parseBoolean(settings.getProperty("subfolders", "false"));
+        maxRetries = Integer.parseInt(settings.getProperty("maxRetries", "2"));
+        retryDelaySec = Integer.parseInt(settings.getProperty("retryDelaySec", "30"));
+        videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
+        loadJobs();
+
+        EventQueue.invokeAndWait(() -> {
+            buildTray();
+            buildWindow(); // stays hidden: the app starts silently in the menu bar
+            history = new HistoryWindow(this);
+        });
+        // Double-click on the app while it is already running -> show the window again
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.APP_EVENT_REOPENED)) {
+            Desktop.getDesktop().addAppEventListener((AppReopenedListener) e -> EventQueue.invokeLater(this::showWindow));
+        }
+
+        Thread maintenance = new Thread(() -> {
+            ensureTools();
+            upgradeYtDlpIfStale();
+        }, "maintenance");
+        maintenance.setDaemon(true);
+        maintenance.start();
+
+        Thread downloader = new Thread(this::workerLoop, "downloader");
+        downloader.setDaemon(true);
+        downloader.start();
+        resumeInterruptedJobs();
+
+        // Ignore whatever is already in the clipboard at startup
+        lastClip = readClipboard();
+        poller.execute(() -> setStatus("Vigilando portapapeles"));
+        poller.scheduleWithFixedDelay(this::pollClipboard, 1, 1, TimeUnit.SECONDS);
+        log("InstaTray started. Output: " + videosDir + (subfolders ? "/<Site>" : ""));
+    }
+
+    // ---------------------------------------------------------------- UI
+
+    private void buildTray() {
+        PopupMenu menu = new PopupMenu();
+
+        statusItem = new MenuItem("Listo — copia un enlace de video");
+        statusItem.setEnabled(false);
+        menu.add(statusItem);
+
+        cookiesItem = new MenuItem("Cookies: buscando en Descargas…");
+        cookiesItem.setEnabled(false);
+        menu.add(cookiesItem);
+        menu.addSeparator();
+
+        watchItem = new CheckboxMenuItem("Vigilar portapapeles", true);
+        watchItem.addItemListener(e -> setWatching(watchItem.getState()));
+        menu.add(watchItem);
+
+        notifyItem = new CheckboxMenuItem("Avisar si una descarga falla", notifications);
+        notifyItem.addItemListener(e -> setNotifications(notifyItem.getState()));
+        menu.add(notifyItem);
+
+        MenuItem now = new MenuItem("Descargar enlace copiado ahora");
+        now.addActionListener(e -> downloadClipboardNow());
+        menu.add(now);
+
+        subfoldersItem = new CheckboxMenuItem("Una subcarpeta por red social", subfolders);
+        subfoldersItem.addItemListener(e -> setSubfolders(subfoldersItem.getState()));
+        menu.add(subfoldersItem);
+
+        MenuItem hist = new MenuItem("Cola e historial…");
+        hist.addActionListener(e -> history.show());
+        menu.add(hist);
+
+        pauseItem = new CheckboxMenuItem("Pausar cola", false);
+        pauseItem.addItemListener(e -> setPaused(pauseItem.getState()));
+        menu.add(pauseItem);
+
+        MenuItem show = new MenuItem("Mostrar ventana");
+        show.addActionListener(e -> showWindow());
+        menu.add(show);
+        menu.addSeparator();
+
+        MenuItem open = new MenuItem("Abrir carpeta de videos");
+        open.addActionListener(e -> openPath(videosDir));
+        menu.add(open);
+
+        MenuItem openLog = new MenuItem("Ver registro");
+        openLog.addActionListener(e -> openPath(LOG));
+        menu.add(openLog);
+        menu.addSeparator();
+
+        MenuItem quit = new MenuItem("Salir");
+        quit.addActionListener(e -> {
+            SystemTray.getSystemTray().remove(trayIcon);
+            System.exit(0);
+        });
+        menu.add(quit);
+
+        BufferedImage icon = AeroIcon.render(44); // 22pt @2x for Retina menu bar
+        trayIcon = new TrayIcon(icon, "InstaTray", menu);
+        trayIcon.setImageAutoSize(true);
+        try {
+            SystemTray.getSystemTray().add(trayIcon);
+        } catch (AWTException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void buildWindow() {
+        window = new JFrame("InstaTray");
+        window.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE); // closing only hides; app keeps running
+        window.setIconImage(AeroIcon.render(256));
+
+        JPanel root = new JPanel();
+        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+        root.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
+
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        header.add(new JLabel(new ImageIcon(AeroIcon.render(64))));
+        JLabel title = new JLabel("<html><b style='font-size:15px'>InstaTray</b><br>"
+                + "Copia el enlace de un video (Instagram, YouTube, TikTok, X y "
+                + (Site.values().length - 4) + " sitios más) y se descarga solo.</html>");
+        header.add(title);
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        root.add(header);
+        root.add(Box.createVerticalStrut(14));
+
+        winStatus = new JLabel("Estado: iniciando…");
+        winCookies = new JLabel("Cookies: buscando en Descargas…");
+        for (JLabel l : new JLabel[]{winStatus, winCookies}) {
+            l.setAlignmentX(Component.LEFT_ALIGNMENT);
+            root.add(l);
+            root.add(Box.createVerticalStrut(4));
+        }
+
+        JPanel folderRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        folderRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        winFolder = new JLabel();
+        JButton change = new JButton("Cambiar…");
+        change.addActionListener(e -> chooseVideosDir());
+        folderRow.add(winFolder);
+        folderRow.add(Box.createHorizontalStrut(8));
+        folderRow.add(change);
+        root.add(folderRow);
+        updateFolderLabel();
+
+        winSubfolders = new JCheckBox("Una subcarpeta por red social (Instagram, YouTube, X, Twitch)", subfolders);
+        winSubfolders.setAlignmentX(Component.LEFT_ALIGNMENT);
+        winSubfolders.addActionListener(e -> setSubfolders(winSubfolders.isSelected()));
+        root.add(winSubfolders);
+
+        JPanel retryRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        retryRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JComboBox<Integer> retries = new JComboBox<>(new Integer[]{0, 1, 2, 3, 4, 5});
+        retries.setSelectedItem(maxRetries);
+        retries.addActionListener(e -> {
+            maxRetries = (Integer) retries.getSelectedItem();
+            saveSetting("maxRetries", String.valueOf(maxRetries));
+        });
+        JComboBox<Integer> delay = new JComboBox<>(RETRY_DELAYS);
+        delay.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> l, Object v, int i, boolean sel, boolean f) {
+                int sec = (Integer) v;
+                return super.getListCellRendererComponent(l, sec < 60 ? sec + " s" : sec / 60 + " min", i, sel, f);
+            }
+        });
+        delay.setSelectedItem(retryDelaySec);
+        delay.addActionListener(e -> {
+            retryDelaySec = (Integer) delay.getSelectedItem();
+            saveSetting("retryDelaySec", String.valueOf(retryDelaySec));
+        });
+        retryRow.add(new JLabel("Si falla, reintentar en silencio "));
+        retryRow.add(retries);
+        retryRow.add(new JLabel(" veces, esperando "));
+        retryRow.add(delay);
+        retryRow.add(new JLabel(" (más cada vez)"));
+        root.add(Box.createVerticalStrut(4));
+        root.add(retryRow);
+
+        winWatch = new JCheckBox("Vigilar portapapeles", true);
+        winWatch.setAlignmentX(Component.LEFT_ALIGNMENT);
+        winWatch.addActionListener(e -> setWatching(winWatch.isSelected()));
+        root.add(Box.createVerticalStrut(6));
+        root.add(winWatch);
+
+        winNotify = new JCheckBox("Avisar con una notificación si una descarga falla", notifications);
+        winNotify.setAlignmentX(Component.LEFT_ALIGNMENT);
+        winNotify.addActionListener(e -> setNotifications(winNotify.isSelected()));
+        root.add(winNotify);
+        root.add(Box.createVerticalStrut(10));
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        buttons.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton now = new JButton("Descargar copiado");
+        now.addActionListener(e -> downloadClipboardNow());
+        JButton hist = new JButton("Cola e historial");
+        hist.addActionListener(e -> history.show());
+        JButton folder = new JButton("Abrir carpeta");
+        folder.addActionListener(e -> openPath(videosDir));
+        JButton quit = new JButton("Salir");
+        quit.addActionListener(e -> {
+            SystemTray.getSystemTray().remove(trayIcon);
+            System.exit(0);
+        });
+        buttons.add(now);
+        buttons.add(hist);
+        buttons.add(folder);
+        buttons.add(quit);
+        root.add(buttons);
+
+        window.setContentPane(root);
+        window.pack();
+        window.setResizable(false);
+        window.setLocationRelativeTo(null);
+    }
+
+    private void listenForOtherInstances(ServerSocket server) {
+        Thread t = new Thread(() -> {
+            while (true) {
+                try (Socket s = server.accept()) {
+                    s.setSoTimeout(2000);
+                    BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                    String cmd = in.readLine();
+                    String reply = control(cmd == null ? "" : cmd.trim());
+                    s.getOutputStream().write((reply + "\n").getBytes(StandardCharsets.UTF_8));
+                } catch (IOException ignored) {
+                }
+            }
+        }, "instance");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * Loopback-only control channel. An empty line (a second launch) shows the window; the other
+     * commands exist so the queue can be exercised from a terminal: queue, pause, resume, top KEY, cancel KEY.
+     */
+    private String control(String cmd) {
+        String[] parts = cmd.split("\\s+", 2);
+        String arg = parts.length > 1 ? parts[1] : "";
+        Job job = queueSnapshot().stream().filter(j -> j.link.key().equals(arg)).findFirst().orElse(null);
+        switch (parts[0]) {
+            case "" -> EventQueue.invokeLater(this::showWindow);
+            case "queue" -> {
+                StringBuilder sb = new StringBuilder(paused ? "paused" : "running");
+                for (Job j : queueSnapshot()) sb.append(" | ").append(j.link.key()).append(' ').append(j.statusText());
+                return sb.toString();
+            }
+            case "pause" -> setPaused(true);
+            case "resume" -> setPaused(false);
+            case "top" -> { if (job != null) move(job, Integer.MIN_VALUE); else return "no such job"; }
+            case "cancel" -> { if (job != null) cancel(job); else return "no such job"; }
+            default -> { return "unknown command"; }
+        }
+        return "ok";
+    }
+
+    private void showWindow() {
+        window.setVisible(true);
+        window.setState(Frame.NORMAL);
+        window.toFront();
+        try {
+            Desktop.getDesktop().requestForeground(true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void setWatching(boolean on) {
+        watching = on;
+        EventQueue.invokeLater(() -> {
+            watchItem.setState(on);
+            winWatch.setSelected(on);
+        });
+        poller.execute(() -> setStatus(on ? "Vigilando portapapeles" : "En pausa"));
+    }
+
+    private void setNotifications(boolean on) {
+        notifications = on;
+        EventQueue.invokeLater(() -> {
+            notifyItem.setState(on);
+            winNotify.setSelected(on);
+        });
+        saveSetting("notifications", String.valueOf(on));
+        log("Notifications " + (on ? "on" : "off"));
+    }
+
+    private void setSubfolders(boolean on) {
+        subfolders = on;
+        EventQueue.invokeLater(() -> {
+            subfoldersItem.setState(on);
+            winSubfolders.setSelected(on);
+            updateFolderLabel();
+        });
+        saveSetting("subfolders", String.valueOf(on));
+        log("Subfolders " + (on ? "on" : "off"));
+    }
+
+    private void chooseVideosDir() {
+        // Native macOS folder picker
+        System.setProperty("apple.awt.fileDialogForDirectories", "true");
+        FileDialog fd = new FileDialog(window, "Elige la carpeta para los videos", FileDialog.LOAD);
+        fd.setDirectory(videosDir.toString());
+        fd.setVisible(true);
+        System.setProperty("apple.awt.fileDialogForDirectories", "false");
+        if (fd.getFile() == null) return;
+        Path chosen = Paths.get(fd.getDirectory(), fd.getFile());
+        videosDir = chosen;
+        saveSetting("videosDir", chosen.toString());
+        updateFolderLabel();
+        log("Videos folder -> " + chosen);
+    }
+
+    private void updateFolderLabel() {
+        winFolder.setText("Videos en: " + displayPath(videosDir) + (subfolders ? "/<red social>" : ""));
+    }
+
+    /** Folder for a site's videos, created on demand. */
+    private Path outDir(Site site) {
+        return subfolders ? videosDir.resolve(site.label) : videosDir;
+    }
+
+    /** "~/Documents/Videos" -> "Documentos/Videos" for messages. */
+    static String displayPath(Path p) {
+        Path docs = HOME.resolve("Documents");
+        if (p.startsWith(docs)) return "Documentos/" + docs.relativize(p);
+        if (p.startsWith(HOME)) return "~/" + HOME.relativize(p);
+        return p.toString();
+    }
+
+    private static synchronized void saveSetting(String key, String value) {
+        Properties props = loadSettings();
+        props.setProperty(key, value);
+        try (OutputStream out = Files.newOutputStream(SETTINGS)) {
+            props.store(out, "InstaTray settings");
+        } catch (IOException e) {
+            log("ERROR saving settings: " + e);
+        }
+    }
+
+    private static Properties loadSettings() {
+        Properties props = new Properties();
+        if (Files.exists(SETTINGS)) {
+            try (InputStream in = Files.newInputStream(SETTINGS)) {
+                props.load(in);
+            } catch (IOException ignored) {
+            }
+        }
+        return props;
+    }
+
+    private void downloadClipboardNow() {
+        poller.execute(() -> {
+            String clip = readClipboard();
+            if (!handleText(clip, true)) {
+                setStatus("No hay un enlace de video compatible copiado");
+            }
+        });
+    }
+
+    /**
+     * Idle: project orb with the download arrow. Busy: orb in the active site's color with the
+     * number of pending downloads (current one + queue) in the center.
+     */
+    private void updateTrayIcon() {
+        int pending = queued.size();
+        Site site = activeSite;
+        AeroIcon.Palette palette = pending == 0 || site == null ? AeroIcon.Palette.IDLE : site.palette();
+        int pct = palette == AeroIcon.Palette.IDLE ? -1 : activePercent;
+        // One item: the number is its download percentage. Several: the number is how many are pending.
+        String badge = palette == AeroIcon.Palette.IDLE ? null
+                : pending == 1 ? Math.max(0, pct) + "%"
+                : pending > 9 ? "9+" : String.valueOf(pending);
+        int step = pct < 0 ? -1 : pct / 5 * 5; // 5% steps keep the icon cache small (fill level)
+        String key = palette + ":" + badge + ":" + step;
+        BufferedImage img = iconCache.computeIfAbsent(key,
+                k -> AeroIcon.render(44, palette, badge, step < 0 ? 0f : step / 100f));
+        if (!key.equals(lastIconKey)) log("Tray icon -> " + key);
+        lastIconKey = key;
+        String tip = paused && pending > 0 ? "InstaTray — cola en pausa, " + pending + " pendientes"
+                : badge == null ? "InstaTray — sin descargas"
+                : "InstaTray — bajando de " + site.label + (pct >= 0 ? " " + pct + "%" : "") + ", "
+                + pending + (pending == 1 ? " pendiente" : " pendientes");
+        EventQueue.invokeLater(() -> {
+            trayIcon.setImage(img);
+            trayIcon.setToolTip(tip);
+        });
+    }
+
+    // Must not run on the EDT: reading ~/Downloads may block on the macOS privacy prompt
+    private void setStatus(String text) {
+        String cookies = cookiesLabel();
+        EventQueue.invokeLater(() -> {
+            statusItem.setLabel(text);
+            cookiesItem.setLabel(cookies);
+            winStatus.setText("Estado: " + text);
+            winCookies.setText(cookies);
+        });
+    }
+
+    private String cookiesLabel() {
+        List<String> with = new ArrayList<>();
+        for (Site site : Site.values()) {
+            if (findCookies(site) != null) with.add(site.label);
+        }
+        return with.isEmpty() ? "Cookies: ninguna en Descargas"
+                : "Cookies: " + String.join(", ", with) + " (" + with.size() + " de " + Site.values().length + " sitios)";
+    }
+
+    // ---------------------------------------------------------------- clipboard
+
+    private String readClipboard() {
+        try {
+            Clipboard cb = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (cb.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+                Object data = cb.getData(DataFlavor.stringFlavor);
+                return data == null ? "" : data.toString();
+            }
+        } catch (Exception ignored) {
+            // Clipboard can be momentarily locked by another app
+        }
+        return "";
+    }
+
+    private void pollClipboard() {
+        if (!watching) return;
+        String clip = readClipboard();
+        if (clip.equals(lastClip)) return;
+        lastClip = clip;
+        handleText(clip, false);
+    }
+
+    /** A supported link found in the clipboard. */
+    record Link(Site site, String key, String url) {}
+
+    /** Queues every supported link found in the text. Returns true if any link was found. */
+    private boolean handleText(String text, boolean force) {
+        boolean found = false;
+        for (Link link : findLinks(text)) {
+            found = true;
+            String key = link.key();
+            if (queued.contains(key)) continue;
+            if (done.contains(key) && !force) {
+                setStatus("Ya descargado: " + link.site().label + " " + shortKey(key));
+                continue;
+            }
+            Job job = new Job(link, System.currentTimeMillis());
+            synchronized (jobs) {
+                jobs.add(0, job);
+            }
+            enqueue(job);
+        }
+        return found;
+    }
+
+    private void enqueue(Job job) {
+        job.attempt = 0;
+        queued.add(job.link.key());
+        job.status = Job.Status.QUEUED;
+        job.percent = -1;
+        job.message = "";
+        job.files = List.of();
+        job.clearOutput();
+        if (activeSite == null) activeSite = job.link.site();
+        updateTrayIcon();
+        setStatus("En cola: " + job.link.site().label + " " + shortKey(job.link.key()));
+        saveJobs();
+        synchronized (pending) {
+            pending.addLast(job);
+            pending.notifyAll();
+        }
+    }
+
+    /** Re-runs a finished or failed job (from the history window). */
+    void retry(Job job) {
+        if (!job.isFinished()) return;
+        if (queued.contains(job.link.key())) return;
+        log("Retry " + job.link.url());
+        enqueue(job);
+    }
+
+    List<Job> jobsSnapshot() {
+        synchronized (jobs) {
+            return new ArrayList<>(jobs);
+        }
+    }
+
+    void clearFinishedJobs() {
+        synchronized (jobs) {
+            jobs.removeIf(Job::isFinished);
+        }
+        saveJobs();
+    }
+
+    // ---------------------------------------------------------------- queue
+
+    private void workerLoop() {
+        while (true) {
+            Job next = null;
+            synchronized (pending) {
+                long now = System.currentTimeMillis();
+                if (!paused && !toolsBusy) {
+                    for (Job j : pending) {
+                        if (j.notBefore <= now) {
+                            next = j;
+                            break;
+                        }
+                    }
+                }
+                if (next == null) {
+                    try {
+                        pending.wait(500); // wakes on enqueue / resume, or re-checks waiting retries
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    continue;
+                }
+                pending.remove(next);
+                current = next;
+            }
+            try {
+                download(next);
+            } catch (Throwable t) {
+                log("ERROR worker: " + t);
+            } finally {
+                current = null;
+                currentProcess = null;
+            }
+        }
+    }
+
+    private void resumeInterruptedJobs() {
+        for (Job j : jobsSnapshot()) {
+            if (!j.isFinished() && !queued.contains(j.link.key())) {
+                log("Resuming " + j.link.url());
+                enqueue(j);
+            }
+        }
+    }
+
+    /** What is downloading now followed by what waits, in order. */
+    List<Job> queueSnapshot() {
+        List<Job> list = new ArrayList<>();
+        Job c = current;
+        if (c != null) list.add(c);
+        synchronized (pending) {
+            list.addAll(pending);
+        }
+        return list;
+    }
+
+    List<Job> finishedSnapshot() {
+        return jobsSnapshot().stream().filter(Job::isFinished).toList();
+    }
+
+    /** delta -1 = up, +1 = down, Integer.MIN_VALUE = to the top. */
+    void move(Job job, int delta) {
+        synchronized (pending) {
+            int i = pending.indexOf(job);
+            if (i < 0) return;
+            int to = delta == Integer.MIN_VALUE ? 0 : Math.max(0, Math.min(pending.size() - 1, i + delta));
+            pending.remove(i);
+            pending.add(to, job);
+            pending.notifyAll();
+        }
+        log("Queue move " + job.link.url() + " -> " + (delta == Integer.MIN_VALUE ? "top" : delta));
+    }
+
+    void cancel(Job job) {
+        boolean wasPending;
+        synchronized (pending) {
+            wasPending = pending.remove(job);
+        }
+        if (wasPending) {
+            markCancelled(job);
+            return;
+        }
+        if (job == current) {
+            job.cancelRequested = true; // download() sees it after the process dies
+            Process p = currentProcess;
+            if (p != null) {
+                p.descendants().forEach(ProcessHandle::destroy); // ffmpeg children too
+                p.destroy();
+            }
+            log("Cancel requested " + job.link.url());
+        }
+    }
+
+    void cancelAll() {
+        List<Job> waiting;
+        synchronized (pending) {
+            waiting = new ArrayList<>(pending);
+        }
+        waiting.forEach(this::cancel);
+        Job c = current;
+        if (c != null) cancel(c);
+    }
+
+    boolean isPaused() {
+        return paused;
+    }
+
+    void setPaused(boolean on) {
+        paused = on;
+        synchronized (pending) {
+            pending.notifyAll();
+        }
+        EventQueue.invokeLater(() -> pauseItem.setState(on));
+        log("Queue " + (on ? "paused" : "resumed"));
+        poller.execute(() -> setStatus(on ? "Cola en pausa (lo que se está bajando termina)" : "Vigilando portapapeles"));
+        updateTrayIcon();
+    }
+
+    private void markCancelled(Job job) {
+        job.status = Job.Status.CANCELLED;
+        job.percent = -1;
+        job.message = "Cancelado";
+        job.notBefore = 0;
+        queued.remove(job.link.key());
+        if (queued.isEmpty()) activeSite = null;
+        updateTrayIcon();
+        saveJobs();
+        log("Cancelled " + job.link.url());
+    }
+
+    /**
+     * Stops yt-dlp and its children and waits until they are really gone: a dying yt-dlp can still
+     * reopen its .part file for the next fragment, so cleaning up earlier leaves the file behind.
+     */
+    private static void killAndWait(Process p) {
+        if (p == null) return;
+        List<ProcessHandle> children = p.descendants().toList();
+        children.forEach(ProcessHandle::destroy);
+        p.destroy();
+        try {
+            if (!p.waitFor(3, TimeUnit.SECONDS)) {
+                children.forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly().waitFor(3, TimeUnit.SECONDS);
+            }
+            for (ProcessHandle c : children) c.onExit().get(3, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Removes what a cancelled download left behind (.part, .ytdl, unmerged streams). macOS privacy
+     * (TCC) does not let this app list ~/Documents, but files can be removed by exact path, so it
+     * deletes the paths yt-dlp announced instead of scanning the folder.
+     */
+    private static void deletePartials(Job job) {
+        List<String> paths;
+        synchronized (job.destinations) {
+            paths = new ArrayList<>(job.destinations);
+        }
+        for (String d : paths) {
+            for (String candidate : new String[]{d, d + ".part", d + ".ytdl", d + ".part.ytdl"}) {
+                try {
+                    if (Files.deleteIfExists(Paths.get(candidate))) log("Deleted partial " + candidate);
+                } catch (IOException e) {
+                    log("ERROR deleting " + candidate + ": " + e);
+                }
+            }
+        }
+        job.destinations.clear();
+    }
+
+    private void loadJobs() {
+        if (!Files.exists(JOBS)) return;
+        try {
+            for (String line : Files.readAllLines(JOBS, StandardCharsets.UTF_8)) {
+                Job j = Job.fromLine(line);
+                if (j != null) jobs.add(j);
+            }
+        } catch (IOException e) {
+            log("ERROR loading jobs: " + e);
+        }
+    }
+
+    private void saveJobs() {
+        List<String> lines;
+        synchronized (jobs) {
+            while (jobs.size() > MAX_JOBS) jobs.remove(jobs.size() - 1);
+            lines = jobs.stream().map(Job::toLine).toList();
+        }
+        try {
+            Files.write(JOBS, lines, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log("ERROR saving jobs: " + e);
+        }
+    }
+
+    static List<Link> findLinks(String text) {
+        List<Link> links = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (LinkRule r : RULES) {
+            Matcher m = r.pattern().matcher(text);
+            while (m.find()) {
+                String key = r.key().apply(m);
+                if (seen.add(key)) links.add(new Link(r.site(), key, r.url().apply(m)));
+            }
+        }
+        return links;
+    }
+
+    private static String shortKey(String key) {
+        return key.substring(key.indexOf(':') + 1);
+    }
+
+    // ---------------------------------------------------------------- download
+
+    private void download(Job job) {
+        Link link = job.link;
+        Site site = link.site();
+        String name = site.label + " " + shortKey(link.key());
+        Path outDir = outDir(site);
+        job.cancelRequested = false;
+        try {
+            String ytdlp = findBin("yt-dlp");
+            if (ytdlp == null && ensureTools()) ytdlp = findBin("yt-dlp");
+            if (ytdlp == null) {
+                fail(job, name, "Falta yt-dlp y no se pudo instalar con Homebrew (mira el registro)", true);
+                return;
+            }
+            Files.createDirectories(outDir);
+            Path cookies = findCookies(site);
+            activeSite = site;
+            activePercent = 0;
+            job.status = Job.Status.DOWNLOADING;
+            job.percent = 0;
+            updateTrayIcon();
+            setStatus("Descargando " + name + "…");
+            log("Downloading " + link.url() + (cookies != null ? " with cookies " + cookies : " without cookies"));
+
+            List<String> cmd = new ArrayList<>(List.of(
+                    ytdlp,
+                    // --print implies quiet mode, which hides progress: force it back on
+                    "--newline", "--no-quiet", "--progress", "--no-overwrites", "--restrict-filenames",
+                    "--progress-template",
+                    "download:" + PROGRESS_PREFIX + "%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
+                    "--no-playlist",
+                    "--match-filter", "!is_live", // never start recording a live stream
+                    "-f", "bv*+ba/b",
+                    // H.264 + AAC first: M1 Macs cannot play AV1/VP9 in QuickTime
+                    "-S", "vcodec:h264,res,acodec:aac",
+                    "--merge-output-format", "mp4",
+                    // sites that only offer VP8/VP9 webm (e.g. 9GAG) get converted; files already in mp4 are left alone
+                    "--recode-video", "mp4",
+                    "-o", outDir + "/" + site.template,
+                    "--print", "after_move:filepath"));
+            String ffmpeg = findBin("ffmpeg");
+            if (ffmpeg != null) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
+            if (cookies != null) {
+                // yt-dlp rewrites the cookie jar on exit, so it gets a copy holding only this site's cookies:
+                // the original stays intact and a full-browser export never leaks other sites' sessions
+                Path tmpCookies = STATE_DIR.resolve("cookies-session.txt");
+                writeSiteCookies(cookies, tmpCookies, site);
+                cmd.addAll(List.of("--cookies", tmpCookies.toString()));
+            }
+            cmd.add(link.url());
+
+            ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+            pb.environment().put("PATH", String.join(":", BIN_DIRS));
+            Process p = pb.start();
+            currentProcess = p;
+
+            List<String> files = new ArrayList<>();
+            StringBuilder tail = new StringBuilder();
+            Progress progress = new Progress();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.startsWith(PROGRESS_PREFIX)) {
+                        int pct = progress.update(line.substring(PROGRESS_PREFIX.length()));
+                        if (pct >= 0 && pct != job.percent) {
+                            job.percent = pct;
+                            activePercent = pct;
+                            updateTrayIcon();
+                            if (pct % 10 == 0) setStatus("Descargando " + name + "… " + pct + "%");
+                        }
+                        continue; // progress lines are not logged
+                    }
+                    progress.onLine(line);
+                    if (line.startsWith("[download] Destination: ")) {
+                        job.destinations.add(line.substring("[download] Destination: ".length()).trim());
+                    }
+                    log("  " + line);
+                    job.addOutput(line);
+                    if (line.startsWith("/") && Files.exists(Paths.get(line))) files.add(line);
+                    tail.setLength(0);
+                    tail.append(line);
+                }
+            }
+            int exit = p.waitFor();
+            if (job.cancelRequested) {
+                log("Cleaning partials of " + shortKey(link.key()) + " in " + outDir);
+                killAndWait(p);
+                deletePartials(job);
+                markCancelled(job);
+                setStatus("Cancelado: " + name);
+                return;
+            }
+
+            if (exit == 0 && !files.isEmpty()) {
+                done.add(link.key());
+                Files.writeString(HISTORY, link.key() + "\n", StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                job.files = List.copyOf(files);
+                job.percent = 100;
+                job.message = (files.size() > 1 ? files.size() + " videos en " : "Guardado en ") + displayPath(outDir)
+                        + (files.size() == 1 ? "/" + Paths.get(files.get(0)).getFileName() : "");
+                job.status = Job.Status.DONE;
+                setStatus("Listo: " + name); // success is silent: only failures notify
+            } else {
+                String msg = tail.toString();
+                boolean permanent = true;
+                if (exit == 0 || msg.contains("is_live")) {
+                    msg = "Es una transmisión en vivo: no se graba";
+                } else if (msg.contains("There is no video") || msg.contains("No video could be found")) {
+                    msg = "Ese post no tiene video";
+                } else if ((msg.contains("login") || msg.contains("cookies") || msg.contains("Sign in"))
+                        && !msg.contains("rate-limit")) {
+                    msg = site.label + " pide sesión: exporta cookies nuevas de " + site.label + " a Descargas";
+                } else {
+                    permanent = false; // network, rate limits, server errors: worth retrying
+                    if (msg.startsWith("ERROR: ")) msg = msg.substring("ERROR: ".length());
+                }
+                fail(job, name, msg, permanent);
+            }
+        } catch (Exception e) {
+            if (!job.cancelRequested) {
+                log("ERROR " + e);
+                job.addOutput("ERROR " + e);
+            }
+            if (job.cancelRequested) {
+                // killing yt-dlp usually ends here: reading its output fails once the process is gone
+                log("Cleaning partials (after read error) of " + shortKey(link.key()) + " in " + outDir);
+                killAndWait(currentProcess);
+                deletePartials(job);
+                markCancelled(job);
+                setStatus("Cancelado: " + name);
+            } else {
+                fail(job, name, String.valueOf(e.getMessage()));
+            }
+        } finally {
+            if (job.status != Job.Status.QUEUED) queued.remove(link.key());
+            activePercent = -1;
+            if (queued.isEmpty()) activeSite = null;
+            updateTrayIcon();
+            saveJobs();
+        }
+    }
+
+    private void fail(Job job, String name, String msg) {
+        fail(job, name, msg, false);
+    }
+
+    /**
+     * Transient failures are retried silently (configurable count, growing delay); only the final failure
+     * notifies. Permanent ones (live stream, no video, login needed, yt-dlp missing) fail right away.
+     */
+    private void fail(Job job, String name, String msg, boolean permanent) {
+        if (!permanent && job.attempt < maxRetries) {
+            job.attempt++;
+            long wait = (long) retryDelaySec * job.attempt;
+            job.status = Job.Status.QUEUED; // keeps its slot in the queue (and in the tray count) while waiting
+            job.percent = -1;
+            job.message = "Falló (" + msg + "). Reintento " + job.attempt + "/" + maxRetries + " en "
+                    + (wait < 60 ? wait + " s" : wait / 60 + " min");
+            job.addOutput("--- reintento automático " + job.attempt + "/" + maxRetries + " en " + wait + " s ---");
+            log("Auto-retry " + job.attempt + "/" + maxRetries + " in " + wait + "s: " + job.link.url());
+            setStatus("Reintentará " + name + " en " + wait + " s");
+            job.notBefore = System.currentTimeMillis() + wait * 1000;
+            synchronized (pending) {
+                pending.addLast(job);
+                pending.notifyAll();
+            }
+            return;
+        }
+        job.status = Job.Status.FAILED;
+        job.message = job.attempt > 0 ? msg + " (tras " + job.attempt + " reintentos)" : msg;
+        setStatus("Falló " + name + " — mira el Historial");
+        notify("No se pudo descargar " + name, job.message + " — abre el Historial para ver qué pasó o reintentar");
+    }
+
+    private static final String PROGRESS_PREFIX = "PROG ";
+
+    /**
+     * Turns yt-dlp's per-file byte progress into one overall percentage. A "video+audio" format downloads
+     * two files back to back; the video gets 90% of the bar since it is by far the larger one.
+     */
+    static final class Progress {
+        private int parts = 1;
+        private int part = -1;
+
+        void onLine(String line) {
+            Matcher m = Pattern.compile("Downloading \\d+ format\\(s\\): (\\S+)").matcher(line);
+            if (m.find()) parts = m.group(1).contains("+") ? 2 : 1;
+            if (line.startsWith("[download] Destination:")) part++;
+        }
+
+        int update(String data) {
+            String[] f = data.trim().split("\\s+");
+            if (f.length < 2) return -1;
+            try {
+                double done = Double.parseDouble(f[0]);
+                double total = Double.parseDouble(f[1]);
+                if (total <= 0) return -1;
+                double frac = Math.min(1, done / total);
+                int idx = Math.max(0, part);
+                double overall = parts == 2 ? (idx == 0 ? frac * 0.9 : 0.9 + frac * 0.1) : frac;
+                return (int) Math.min(99, Math.round(overall * 100)); // 100 only once the file is saved
+            } catch (NumberFormatException e) {
+                return -1; // "NA" while the size is unknown
+            }
+        }
+    }
+
+    /**
+     * Cookies for a site, from ~/Downloads: the newest *cookie*.txt whose name mentions the site
+     * (e.g. www.youtube.com_cookies.txt); otherwise the newest general export (e.g. cookies.txt)
+     * that contains at least one cookie for the site.
+     */
+    static Path findCookies(Site site) {
+        List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(DOWNLOADS, "*.txt")) {
+            for (Path p : ds) {
+                if (p.getFileName().toString().toLowerCase(Locale.ROOT).contains("cookie")) files.add(p);
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        files.sort(Comparator.comparingLong(InstaTray::modifiedTime).reversed());
+
+        for (Path p : files) {
+            if (site.matchesCookieFile(p.getFileName().toString().toLowerCase(Locale.ROOT))) return p;
+        }
+        for (Path p : files) {
+            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+            boolean otherSite = Arrays.stream(Site.values()).anyMatch(s -> s.matchesCookieFile(name));
+            if (!otherSite && hasSiteCookies(p, site)) return p;
+        }
+        return null;
+    }
+
+    private static long modifiedTime(Path p) {
+        try {
+            return Files.getLastModifiedTime(p).toMillis();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private static boolean hasSiteCookies(Path file, Site site) {
+        try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
+            return lines.anyMatch(l -> isCookieLine(l) && site.ownsCookieLine(l));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isCookieLine(String line) {
+        return !line.isBlank() && (!line.startsWith("#") || line.startsWith("#HttpOnly_")) && line.indexOf('\t') > 0;
+    }
+
+    /** Writes a Netscape cookie file with only the site's cookies. */
+    static void writeSiteCookies(Path src, Path dst, Site site) throws IOException {
+        List<String> out = new ArrayList<>();
+        out.add("# Netscape HTTP Cookie File");
+        for (String line : Files.readAllLines(src, StandardCharsets.UTF_8)) {
+            if (isCookieLine(line) && site.ownsCookieLine(line)) out.add(line);
+        }
+        Files.write(dst, out, StandardCharsets.UTF_8);
+    }
+
+    private static String findBrew() {
+        for (String b : new String[]{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}) {
+            if (Files.isExecutable(Paths.get(b))) return b;
+        }
+        return null;
+    }
+
+    /**
+     * Installs missing download tools with Homebrew. The launcher already does this before Java starts;
+     * this covers tools removed while the app is running. Returns true when yt-dlp is available.
+     */
+    private synchronized boolean ensureTools() {
+        List<String> missing = new ArrayList<>();
+        for (String t : new String[]{"yt-dlp", "ffmpeg", "deno"}) {
+            if (findBin(t) == null) missing.add(t);
+        }
+        if (missing.isEmpty()) return true;
+        String brew = findBrew();
+        if (brew == null) {
+            log("Missing " + missing + " and Homebrew is not installed");
+            notify("InstaTray", "Falta " + String.join(", ", missing) + ". Abre InstaTray de nuevo para instalarlo");
+            return false;
+        }
+        setStatus("Instalando " + String.join(", ", missing) + "…");
+        List<String> cmd = new ArrayList<>(List.of(brew, "install"));
+        cmd.addAll(missing);
+        boolean ok = runBrew(cmd, "install " + missing);
+        if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
+        setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
+        return findBin("yt-dlp") != null;
+    }
+
+    /** Sites change often and old yt-dlp versions stop working: upgrade it silently once a week. */
+    private void upgradeYtDlpIfStale() {
+        long last = Long.parseLong(loadSettings().getProperty("ytdlpUpgradedAt", "0"));
+        if (System.currentTimeMillis() - last < UPGRADE_EVERY_MS) return;
+        String brew = findBrew();
+        if (brew == null || findBin("yt-dlp") == null) return;
+        if (runBrew(List.of(brew, "upgrade", "yt-dlp"), "upgrade yt-dlp")) {
+            saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
+        }
+    }
+
+    /** Runs a Homebrew command with the queue on hold; output goes to the log. */
+    private boolean runBrew(List<String> cmd, String what) {
+        toolsBusy = true;
+        try {
+            // let a download that is already running finish first
+            while (current != null) Thread.sleep(1000);
+            log("Homebrew: " + what);
+            ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+            pb.environment().put("PATH", String.join(":", BIN_DIRS));
+            // installs skip the slow index refresh; upgrades need it, or brew never sees a newer yt-dlp
+            if (cmd.contains("install")) pb.environment().put("HOMEBREW_NO_AUTO_UPDATE", "1");
+            Process p = pb.start();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) log("  brew: " + line);
+            }
+            boolean finished = p.waitFor(20, TimeUnit.MINUTES);
+            int exit = finished ? p.exitValue() : -1;
+            log("Homebrew " + what + " -> exit " + exit);
+            return exit == 0;
+        } catch (Exception e) {
+            log("ERROR Homebrew " + what + ": " + e);
+            return false;
+        } finally {
+            toolsBusy = false;
+            synchronized (pending) {
+                pending.notifyAll();
+            }
+        }
+    }
+
+    private static String findBin(String name) {
+        for (String dir : BIN_DIRS) {
+            Path p = Paths.get(dir, name);
+            if (Files.isExecutable(p)) return p.toString();
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    private void notify(String title, String text) {
+        if (!notifications) { // the tray icon and the window status still show progress
+            log("Notification muted: " + title + " — " + text);
+            return;
+        }
+        log("Notification: " + title + " — " + text);
+        String script = "display notification \"" + esc(text) + "\" with title \"" + esc(title) + "\"";
+        try {
+            new ProcessBuilder("osascript", "-e", script).start();
+        } catch (IOException e) {
+            trayIcon.displayMessage(title, text, TrayIcon.MessageType.INFO);
+        }
+    }
+
+    void revealInFinder(Path file) {
+        try {
+            new ProcessBuilder("open", "-R", file.toString()).start();
+        } catch (IOException ignored) {
+        }
+    }
+
+    void openUrl(String url) {
+        try {
+            new ProcessBuilder("open", url).start();
+        } catch (IOException ignored) {
+        }
+    }
+
+    void openDocuments() {
+        openPath(videosDir);
+    }
+
+    /** Copies text without the clipboard watcher treating it as a new link to download. */
+    void copyToClipboardSilently(String text) {
+        lastClip = text;
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+    }
+
+    private static String esc(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static void openPath(Path p) {
+        try {
+            new ProcessBuilder("open", p.toString()).start();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static synchronized void log(String line) {
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        try {
+            Files.writeString(LOG, ts + " " + line + "\n", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException ignored) {
+        }
+    }
+}

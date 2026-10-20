@@ -1,0 +1,26 @@
+#!/bin/bash
+# Opened in Terminal by InstaTray when Homebrew is missing: installs Homebrew with its official installer
+# (it asks for the administrator password), then InstaTray's requirements, then opens InstaTray again.
+APP_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+echo "== InstaTray: instalando Homebrew (te pedirá tu contraseña de administrador) =="
+if ! /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+  echo "No se pudo instalar Homebrew."
+  read -r -p "Presiona Enter para cerrar."
+  exit 1
+fi
+
+BREW=""
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+  [ -x "$b" ] && BREW="$b" && break
+done
+
+echo "== Instalando Java, yt-dlp, ffmpeg y deno =="
+if ! "$BREW" install openjdk yt-dlp ffmpeg deno; then
+  echo "No se pudieron instalar los requisitos."
+  read -r -p "Presiona Enter para cerrar."
+  exit 1
+fi
+
+echo "== Listo. Abriendo InstaTray =="
+open "$APP_DIR"
