@@ -43,6 +43,8 @@ cat > "$APP/Info.plist" <<EOF
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>InstaTray</string>
   <key>CFBundleIconFile</key><string>InstaTray</string>
+  <key>LSArchitecturePriority</key>
+  <array><string>arm64</string></array>
   <key>LSUIElement</key><true/>
 </dict>
 </plist>

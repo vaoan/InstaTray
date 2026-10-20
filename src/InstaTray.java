@@ -1802,6 +1802,18 @@ public final class InstaTray {
         return null;
     }
 
+    /** Homebrew on /opt/homebrew refuses installs when the JVM is running under Rosetta. */
+    private static List<String> brewCommand(String brew, String... args) {
+        List<String> cmd = new ArrayList<>();
+        if (brew.startsWith("/opt/homebrew/") && "x86_64".equals(System.getProperty("os.arch"))) {
+            cmd.add("arch");
+            cmd.add("-arm64");
+        }
+        cmd.add(brew);
+        cmd.addAll(List.of(args));
+        return cmd;
+    }
+
     /**
      * Installs missing download tools with Homebrew. The launcher already does this before Java starts;
      * this covers tools removed while the app is running. Returns true when yt-dlp is available.
@@ -1819,7 +1831,7 @@ public final class InstaTray {
             return false;
         }
         setStatus("Instalando " + String.join(", ", missing) + "…");
-        List<String> cmd = new ArrayList<>(List.of(brew, "install"));
+        List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
         cmd.addAll(missing);
         boolean ok = runBrew(cmd, "install " + missing);
         if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
@@ -1835,7 +1847,7 @@ public final class InstaTray {
         if (brew == null || findBin("yt-dlp") == null) return;
         if (findBin("gallery-dl") == null) ensureTools();
         // both track sites that change often
-        if (runBrew(List.of(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
+        if (runBrew(brewCommand(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
             saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
         }
     }

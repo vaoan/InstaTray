@@ -15,8 +15,16 @@ for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
   [ -x "$b" ] && BREW="$b" && break
 done
 
+brew_native() {
+  if [ "$BREW" = /opt/homebrew/bin/brew ] && [ "$(uname -m)" = x86_64 ]; then
+    arch -arm64 "$BREW" "$@"
+  else
+    "$BREW" "$@"
+  fi
+}
+
 echo "== Instalando Java, yt-dlp, gallery-dl, ffmpeg y deno =="
-if ! "$BREW" install openjdk yt-dlp gallery-dl ffmpeg deno; then
+if ! brew_native install openjdk yt-dlp gallery-dl ffmpeg deno; then
   echo "No se pudieron instalar los requisitos."
   read -r -p "Presiona Enter para cerrar."
   exit 1

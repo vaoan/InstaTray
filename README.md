@@ -176,6 +176,7 @@ InstaTray necesita **Homebrew**, **Java** (`openjdk`), **yt-dlp**, **gallery-dl*
 - **Con la app abierta**, si yt-dlp, gallery-dl, ffmpeg o deno desaparecen, los reinstala con Homebrew. Mientras tanto la cola espera.
 - **Una vez por semana** actualiza yt-dlp y gallery-dl en silencio (`brew upgrade yt-dlp gallery-dl`), porque los sitios cambian y las versiones viejas dejan de funcionar. La cola espera a que termine la descarga en curso.
 - El registro de instalaciones está en `~/Library/Application Support/InstaTray/setup.log`. Las actualizaciones quedan en `instatray.log`.
+  - Si ves *Cannot install under Rosetta 2 in ARM default prefix*, el lanzador ya fuerza `brew`/`java` nativos en Apple Silicon; vuelve a abrir la app tras `./build.sh`.
 
 Para qué sirve cada uno:
 - **`openjdk`:** ejecuta la app. macOS solo trae un stub que no funciona.
