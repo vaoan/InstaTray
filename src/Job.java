@@ -28,10 +28,12 @@ final class Job {
     volatile String page = "";
     /** Automatic retries already used for the current request. */
     volatile int attempt = 0;
-    /** Shown in the tray tooltip while downloading: video title (or file name), speed and time left. */
+    /** Video title (or file name): tray tooltip while downloading, and the row title in the window. */
     volatile String title = "";
     volatile String speed = "";
     volatile String eta = "";
+    /** Size of the first downloaded file in bytes, -1 when unknown or missing (not persisted). */
+    volatile long bytes = -1;
     /** A waiting automatic retry is not started before this time (epoch ms). */
     volatile long notBefore = 0;
     volatile boolean cancelRequested = false;
@@ -77,7 +79,8 @@ final class Job {
 
     String toLine() {
         return String.join("\t", String.valueOf(createdAt), link.key(), link.url(), link.site().name(),
-                status.name(), clean(message), clean(String.join("|", files)), clean(page));
+                status.name(), clean(message), clean(String.join("|", files)), clean(page),
+                clean(title));
     }
 
     /** Jobs still queued or downloading when the app quit come back as QUEUED and are resumed. */
@@ -92,6 +95,7 @@ final class Job {
             job.message = job.isFinished() ? f[5] : "Retomado al abrir InstaTray";
             job.files = f[6].isEmpty() ? List.of() : List.of(f[6].split("\\|"));
             if (f.length > 7) job.page = f[7];
+            if (f.length > 8) job.title = f[8];
             return job;
         } catch (IllegalArgumentException e) {
             return null;
