@@ -174,8 +174,8 @@ botones (el azul es el principal):
   espera, sin dejarla en Fallidas.
 - **Borrar o quitar solo saca filas de la lista: nunca borra videos.** La 🗑 de una fila no pregunta.
 
-**Línea de abajo:** a la izquierda, «● Vigilando portapapeles» (clic para pausarlo: «○ Portapapeles en pausa») y la
-carpeta de videos (clic para abrirla). A la derecha, según el filtro:
+**Línea de abajo:** a la izquierda, un interruptor **Vigilar portapapeles** (azul = vigilando; apagado = «Portapapeles
+en pausa», igual que en el menú de la esfera y en Ajustes) y la carpeta de videos (clic para abrirla). A la derecha, según el filtro:
 - *Todas*: *Pausar* (lo que se está bajando termina, pero no empieza nada nuevo; también en el menú de la esfera).
 - *Descargando* / *En cola*: *Pausar* y *Cancelar todas* (cancela la actual y quita las que esperan; pregunta antes).
 - *Fallidas*: *Reintentar todas* y *Borrar todas* (pregunta antes).

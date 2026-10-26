@@ -40,6 +40,7 @@ final class DownloadsWindow {
     private final Map<JobView.Filter, Chip> chipFor = new EnumMap<>(JobView.Filter.class);
     private final JPanel footerRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
     private final JLabel watchLabel = new JLabel();
+    private final Switch watchSwitch = new Switch();
     private final JLabel folderLabel = new JLabel();
     private final JPanel details = new JPanel(new BorderLayout());
     private final JTextArea output = new JTextArea();
@@ -187,11 +188,18 @@ final class DownloadsWindow {
         footer.putClientProperty("footer", true);
         JPanel left = panel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         left.setOpaque(false);
-        link(watchLabel, () -> host.setWatching(!host.isWatching()));
+        Runnable toggleWatch = () -> {
+            host.setWatching(!host.isWatching());
+            reload();
+        };
+        link(watchLabel, toggleWatch);
+        watchSwitch.onToggle = toggleWatch;
         link(folderLabel, host::openVideosFolder);
         JLabel dot = new JLabel(" · ");
         dot.setFont(SMALL);
         dot.putClientProperty("secondary", true);
+        left.add(watchSwitch);
+        left.add(Box.createHorizontalStrut(6));
         left.add(watchLabel);
         left.add(dot);
         left.add(folderLabel);
@@ -250,8 +258,9 @@ final class DownloadsWindow {
             chipFor.get(f).set(f == filter, (int) all.stream().filter(j -> JobView.matches(f, j)).count());
         }
         boolean watching = host.isWatching();
-        watchLabel.setText(watching ? "● Vigilando portapapeles" : "○ Portapapeles en pausa");
-        watchLabel.setForeground(watching ? Theme.current().accent() : Theme.current().secondary());
+        watchSwitch.setOn(watching);
+        watchLabel.setText(watching ? "Vigilando portapapeles" : "Portapapeles en pausa");
+        watchLabel.setForeground(watching ? Theme.current().text() : Theme.current().secondary());
         folderLabel.setText(host.videosFolderLabel());
         rebuildFooterActions();
         refreshOutput();
@@ -792,6 +801,52 @@ final class DownloadsWindow {
         }
     }
 
+    /** A small macOS-style switch (accent track when on). */
+    private static final class Switch extends JComponent {
+        Runnable onToggle = () -> {};
+        private boolean on;
+
+        Switch() {
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setToolTipText("Vigilar portapapeles");
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    onToggle.run();
+                }
+            });
+        }
+
+        void setOn(boolean on) {
+            if (on == this.on) return;
+            this.on = on;
+            repaint();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(30, 18);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Theme.Palette p = Theme.current();
+            double w = 28, h = 16, y = (getHeight() - h) / 2;
+            g.setColor(on ? p.accent() : p.track());
+            g.fill(new RoundRectangle2D.Double(1, y, w, h, h, h));
+            if (!on) {
+                g.setColor(p.buttonBorder());
+                g.draw(new RoundRectangle2D.Double(1, y, w, h, h, h));
+            }
+            double knob = h - 4;
+            g.setColor(Color.WHITE);
+            g.fill(new Ellipse2D.Double(on ? 1 + w - knob - 2 : 3, y + 2, knob, knob));
+            g.dispose();
+        }
+    }
+
     /** A filter pill: "Fallidas 2"; the selected one is dark (light theme) or light (dark theme). */
     private final class Chip extends JComponent {
         private final JobView.Filter f;
@@ -885,7 +940,9 @@ final class DownloadsWindow {
                 render(h, true, JobView.Filter.ALL, false, new File(dir, "downloads-dark.png"));
                 render(h, true, JobView.Filter.FAILED, false, new File(dir, "downloads-failed-filter-dark.png"));
                 render(h, true, JobView.Filter.ALL, true, new File(dir, "downloads-details-dark.png"));
-                render(new PreviewHost(false), false, JobView.Filter.ALL, false, new File(dir, "downloads-empty-light.png"));
+                PreviewHost empty = new PreviewHost(false);
+                empty.watching = false; // shows the switch off
+                render(empty, false, JobView.Filter.ALL, false, new File(dir, "downloads-empty-light.png"));
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -965,7 +1022,8 @@ final class DownloadsWindow {
         @Override public void removeFinished(Predicate<Job> which) {}
         @Override public boolean isPaused() { return false; }
         @Override public void setPaused(boolean on) {}
-        @Override public boolean isWatching() { return true; }
+        boolean watching = true;
+        @Override public boolean isWatching() { return watching; }
         @Override public void setWatching(boolean on) {}
         @Override public String videosFolderLabel() { return "Documentos/Videos"; }
         @Override public void openVideosFolder() {}
