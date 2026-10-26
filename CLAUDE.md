@@ -35,9 +35,11 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   `✔ /path` / `* /path` = saved, `# /path` = already there.
 - `--filter` keeps only video/animation extensions (zip = Pixiv ugoira, `--ugoira mp4`); non-mp4 results go through
   `toPlayableMp4()` (ffmpeg → H.264/AAC). Filename `{category}_{id}{num:?_//}.{extension}`.
-- Pixiv needs `gallery-dl oauth:pixiv` once (token cached by gallery-dl); tray menu "Conectar Pixiv…" opens Terminal.
+- Pixiv needs `gallery-dl oauth:pixiv` once (token cached by gallery-dl); no menu item (user removed it): the first Pixiv
+  download failing for lack of a token opens Terminal (`connectPixiv()`, once per session).
 - Deliberately NOT supported (re-host others' work without permission): Kemono, Coomer, nhentai, ExHentai, Hitomi,
   manga aggregators (e.g. myreadingmanga), boorus. The user asked for myreadingmanga twice; it was declined.
+  A third try went through EMBED and hit Cloudflare: never add `generic:impersonate` / anti-bot workarounds.
 
 ## Catch-all sites
 - `otherCandidates()` picks URLs no rule matched and whose host isn't a named site's (so profiles/channels/live
@@ -49,6 +51,19 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Keys: `ytdl:<ExtractorKey>:<id>` (id = `get_temp_id`, else URL hash) and `gdl:<category>:<url>`; `Link.label()`
   shows the extractor/category. Cookies by registrable domain (`baseDomain`, `findCookiesForDomain`).
   `OTHER` adds `--playlist-items 1:10`.
+- `EMBED` ("Video embebido", setting `embeds`, default off, user asked for it to study generic embedded-video
+  downloads): URLs whose first suitable yt-dlp extractor is Generic (probe prints `*`, kept in `genericUrls`, checked
+  after gallery-dl). Key `embed:<host>:<url hash>`. Prints `FOUND …` (`describeFound()`) into "Qué pasó".
+  No-video/404 results fail silently (no notification). No site-specific workarounds; never tailor it to piracy
+  sites (the user asked for wcostream.tv; declined).
+- Pasted HTML (`looksLikeHtml`: page source in the plain text, or the `allHtmlFlavor` of a rich copy via
+  `readClipboardHtml()`): `pageVideos()` → media (video/source, og:video, JSON-LD contentUrl, .mp4/.m3u8/.mpd URLs,
+  JSON-escaped too) + players (iframe/embed, embedUrl) + canonical page; relative URLs resolved with `<base>`/canonical.
+  `pageLinks()`: media may go Generic (EMBED) even with `embeds` off; players only via real extractors unless
+  embeds/force; canonical URL only as fallback. Page source replaces the plain-text scan (otherwise every css/js URL
+  would be probed). blob: URLs skipped. No Referer/anti-bot tricks.
+- Window "Enlace" field and "Descargar copiado" call `handleText(text, force=true)`: re-download allowed and EMBED
+  allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
 
 ## Adding a site
 1. `Site` entry (engine, label, yt-dlp filename template, cookie-file keys — keys with a dot must start the file name —,
@@ -99,7 +114,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 ## Verifying without screen-recording/accessibility permissions
 `screencapture` and System Events are denied. Instead:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
-  `running | yt:ID Descargando 38% | …`. Also `tooltip`, `pause`, `resume`, `top KEY`, `cancel KEY`; an empty line
+  `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`; an empty line
   shows the window.
 - **Log**: `updateTrayIcon()` logs `Tray icon -> PALETTE:badge:fillStep`; cleanup logs `Deleted partial …`.
 - **Swift CGWindowList**: layer-25 windows = menu-bar items (count with app running vs. not; all are owned by

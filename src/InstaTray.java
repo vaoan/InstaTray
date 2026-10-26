@@ -30,6 +30,7 @@ import javax.swing.JList;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 import javax.swing.WindowConstants;
 
 /**
@@ -96,7 +97,10 @@ public final class InstaTray {
         // Catch-alls: any other single-video URL yt-dlp has an extractor for, and posts on the creator-owned
         // platforms gallery-dl knows (CREATOR_PLATFORMS). Detected by asking the libraries (probeLibraries)
         OTHER("Otros sitios", "%(extractor_key)s_%(title).70B_[%(id)s].%(ext)s", new String[0]),
-        OTHER_GALLERY(Engine.GALLERY_DL, "Otros sitios", new String[0]);
+        OTHER_GALLERY(Engine.GALLERY_DL, "Otros sitios", new String[0]),
+        // Opt-in ("Buscar video embebido en otras páginas"): pages only yt-dlp's Generic extractor takes, which
+        // looks for <video>/<source>, HLS/DASH manifests, og:video and known player iframes in the HTML
+        EMBED("Video embebido", "%(webpage_url_domain)s_%(title).70B_[%(id)s].%(ext)s", new String[0]);
 
         final Engine engine;
         final String label;
@@ -140,7 +144,7 @@ public final class InstaTray {
         }
 
         boolean isCatchAll() {
-            return this == OTHER || this == OTHER_GALLERY;
+            return this == OTHER || this == OTHER_GALLERY || this == EMBED;
         }
 
         boolean matchesCookieFile(String lowerName) {
@@ -324,7 +328,7 @@ public final class InstaTray {
     /**
      * Asks yt-dlp which extractor takes each URL (the first suitable one, as yt-dlp itself picks). Accepted:
      * working extractors that return a single video, or "any" whose name doesn't say playlist/channel/etc.
-     * Prints "ExtractorKey<TAB>id" or "-" per URL.
+     * Prints "ExtractorKey<TAB>id", "*" (only the Generic extractor would try it) or "-" per URL.
      */
     private static final String YT_DLP_PROBE = """
             import sys
@@ -336,7 +340,8 @@ public final class InstaTray {
                 ok = (ie is not None and ie.ie_key() != 'Generic' and ie.working()
                       and (ie._RETURN_TYPE == 'video'
                            or ie._RETURN_TYPE == 'any' and not any(w in ie.ie_key().lower() for w in lists)))
-                print(ie.ie_key() + '\t' + str(ie.get_temp_id(url) or '') if ok else '-', flush=True)
+                generic = ie is not None and ie.ie_key() == 'Generic'
+                print(ie.ie_key() + '\t' + str(ie.get_temp_id(url) or '') if ok else '*' if generic else '-', flush=True)
             """;
 
     /** Asks gallery-dl whether each URL is a single post on one of the platforms in argv[1]. Prints category or "-". */
@@ -407,6 +412,10 @@ public final class InstaTray {
     private JCheckBox winSubfolders;
     private CheckboxMenuItem subfoldersItem;
     private CheckboxMenuItem pauseItem;
+    /** Opt-in: pages no extractor knows go to yt-dlp's Generic extractor (embedded players, HLS, <video>). */
+    private volatile boolean embeds = false;
+    private CheckboxMenuItem embedsItem;
+    private JCheckBox winEmbeds;
     private volatile int maxRetries = 2;
     private volatile int retryDelaySec = 30;
     private static final Integer[] RETRY_DELAYS = {10, 30, 60, 300};
@@ -444,6 +453,7 @@ public final class InstaTray {
         Properties settings = loadSettings();
         notifications = Boolean.parseBoolean(settings.getProperty("notifications", "true"));
         subfolders = Boolean.parseBoolean(settings.getProperty("subfolders", "false"));
+        embeds = Boolean.parseBoolean(settings.getProperty("embeds", "false"));
         maxRetries = Integer.parseInt(settings.getProperty("maxRetries", "2"));
         retryDelaySec = Integer.parseInt(settings.getProperty("retryDelaySec", "30"));
         videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
@@ -510,8 +520,9 @@ public final class InstaTray {
         subfoldersItem.addItemListener(e -> setSubfolders(subfoldersItem.getState()));
         menu.add(subfoldersItem);
 
-        MenuItem pixiv = new MenuItem("Conectar Pixiv…");
-        pixiv.addActionListener(e -> connectPixiv());
+        embedsItem = new CheckboxMenuItem("Buscar video embebido en otras páginas", embeds);
+        embedsItem.addItemListener(e -> setEmbeds(embedsItem.getState()));
+        menu.add(embedsItem);
 
         MenuItem hist = new MenuItem("Cola e historial…");
         hist.addActionListener(e -> history.show());
@@ -520,7 +531,6 @@ public final class InstaTray {
         pauseItem = new CheckboxMenuItem("Pausar cola", false);
         pauseItem.addItemListener(e -> setPaused(pauseItem.getState()));
         menu.add(pauseItem);
-        menu.add(pixiv);
 
         MenuItem show = new MenuItem("Mostrar ventana");
         show.addActionListener(e -> showWindow());
@@ -572,6 +582,34 @@ public final class InstaTray {
         root.add(header);
         root.add(Box.createVerticalStrut(14));
 
+        // Links typed or pasted here: same as copying them, plus the generic extractor even with "embeds" off
+        JPanel urlRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        urlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JTextField urlField = new JTextField(38);
+        urlField.setToolTipText("Pega uno o varios enlaces y pulsa Enter");
+        JButton get = new JButton("Descargar");
+        Runnable submit = () -> {
+            String text = urlField.getText().trim();
+            if (text.isEmpty()) return;
+            urlField.setText("");
+            poller.execute(() -> {
+                if (!handleText(text, true)) {
+                    setStatus("Ese enlace no tiene un video compatible");
+                    EventQueue.invokeLater(() -> {
+                        if (urlField.getText().isEmpty()) urlField.setText(text); // let the user fix it
+                    });
+                }
+            });
+        };
+        urlField.addActionListener(e -> submit.run());
+        get.addActionListener(e -> submit.run());
+        urlRow.add(new JLabel("Enlace: "));
+        urlRow.add(urlField);
+        urlRow.add(Box.createHorizontalStrut(6));
+        urlRow.add(get);
+        root.add(urlRow);
+        root.add(Box.createVerticalStrut(10));
+
         winStatus = new JLabel("Estado: iniciando…");
         winCookies = new JLabel("Cookies: buscando en Descargas…");
         for (JLabel l : new JLabel[]{winStatus, winCookies}) {
@@ -595,6 +633,11 @@ public final class InstaTray {
         winSubfolders.setAlignmentX(Component.LEFT_ALIGNMENT);
         winSubfolders.addActionListener(e -> setSubfolders(winSubfolders.isSelected()));
         root.add(winSubfolders);
+
+        winEmbeds = new JCheckBox("Buscar video embebido en otras páginas (reproductores, HLS, <video>)", embeds);
+        winEmbeds.setAlignmentX(Component.LEFT_ALIGNMENT);
+        winEmbeds.addActionListener(e -> setEmbeds(winEmbeds.isSelected()));
+        root.add(winEmbeds);
 
         JPanel retryRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         retryRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -681,7 +724,8 @@ public final class InstaTray {
 
     /**
      * Loopback-only control channel. An empty line (a second launch) shows the window; the other
-     * commands exist so the queue can be exercised from a terminal: queue, tooltip, pause, resume, top KEY, cancel KEY.
+     * commands exist so the queue can be exercised from a terminal: queue, tooltip, get TEXT, pause, resume,
+     * top KEY, cancel KEY.
      */
     private String control(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
@@ -695,6 +739,7 @@ public final class InstaTray {
                 return sb.toString();
             }
             case "tooltip" -> { return lastTooltip; }
+            case "get" -> { return handleText(arg, true) ? "ok" : "no supported link"; } // like the window field
             case "pause" -> setPaused(true);
             case "resume" -> setPaused(false);
             case "top" -> { if (job != null) move(job, Integer.MIN_VALUE); else return "no such job"; }
@@ -742,6 +787,16 @@ public final class InstaTray {
         });
         saveSetting("subfolders", String.valueOf(on));
         log("Subfolders " + (on ? "on" : "off"));
+    }
+
+    private void setEmbeds(boolean on) {
+        embeds = on;
+        EventQueue.invokeLater(() -> {
+            embedsItem.setState(on);
+            winEmbeds.setSelected(on);
+        });
+        saveSetting("embeds", String.valueOf(on));
+        log("Embedded-video pages " + (on ? "on" : "off"));
     }
 
     private void chooseVideosDir() {
@@ -800,7 +855,7 @@ public final class InstaTray {
     private void downloadClipboardNow() {
         poller.execute(() -> {
             String clip = readClipboard();
-            if (!handleText(clip, true)) {
+            if (!handleText(clip, readClipboardHtml(), true)) {
                 setStatus("No hay un enlace de video compatible copiado");
             }
         });
@@ -873,6 +928,12 @@ public final class InstaTray {
         return String.format(Locale.ROOT, "%.0f B/s", bytesPerSec);
     }
 
+    static String formatBytes(double bytes) {
+        if (bytes >= 1024L * 1024 * 1024) return String.format(Locale.ROOT, "%.2f GB", bytes / (1024L * 1024 * 1024));
+        if (bytes >= 1024 * 1024) return String.format(Locale.ROOT, "%.1f MB", bytes / (1024 * 1024));
+        return String.format(Locale.ROOT, "%.0f KB", bytes / 1024);
+    }
+
     static String formatEta(long seconds) {
         long h = seconds / 3600, m = seconds % 3600 / 60, sec = seconds % 60;
         return h > 0 ? String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec) : String.format(Locale.ROOT, "%d:%02d", m, sec);
@@ -913,12 +974,25 @@ public final class InstaTray {
         return "";
     }
 
+    /** The HTML flavor of a rich copy (a selection copied in a browser), or "". */
+    private String readClipboardHtml() {
+        try {
+            Clipboard cb = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (cb.isDataFlavorAvailable(DataFlavor.allHtmlFlavor)) {
+                Object data = cb.getData(DataFlavor.allHtmlFlavor);
+                return data == null ? "" : data.toString();
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     private void pollClipboard() {
         if (!watching) return;
         String clip = readClipboard();
         if (clip.equals(lastClip)) return;
         lastClip = clip;
-        handleText(clip, false);
+        handleText(clip, readClipboardHtml(), false);
     }
 
     /**
@@ -935,11 +1009,23 @@ public final class InstaTray {
         }
     }
 
-    /** Queues every supported link found in the text. Returns true if any link was found. */
     private boolean handleText(String text, boolean force) {
+        return handleText(text, "", force);
+    }
+
+    /**
+     * Queues every supported link found in the text, or in the page when the text is HTML source / the clipboard
+     * also carries HTML (rich copy). Returns true if any link was found.
+     */
+    private boolean handleText(String text, String richHtml, boolean force) {
         boolean found = false;
-        List<Link> links = new ArrayList<>(findLinks(text));
-        links.addAll(probeLibraries(otherCandidates(text)));
+        boolean source = looksLikeHtml(text);
+        String plain = source ? "" : text;
+        // explicit requests (window field, "Descargar copiado") may use the generic extractor even with embeds off
+        List<Link> links = new ArrayList<>(findLinks(plain));
+        links.addAll(probeLibraries(otherCandidates(plain), embeds || force));
+        String html = source ? text : richHtml;
+        if (!html.isEmpty()) links.addAll(pageLinks(pageVideos(html), force));
         for (Link link : links) {
             found = true;
             String key = link.key();
@@ -955,6 +1041,26 @@ public final class InstaTray {
             enqueue(job);
         }
         return found;
+    }
+
+    /**
+     * Links for the videos of a pasted page. What the page itself plays may go to the generic extractor (copying a
+     * page with a video in it is the request); embedded players only through a real extractor unless embeds is on,
+     * so ad and widget iframes stay out. Falls back to the page's own canonical URL.
+     */
+    private List<Link> pageLinks(PageVideos pv, boolean force) {
+        if (pv.isEmpty()) return List.of();
+        log("Pasted page: " + pv.media().size() + " media, " + pv.players().size() + " players, page " + pv.page());
+        String media = String.join("\n", pv.media()), players = String.join("\n", pv.players());
+        List<Link> links = new ArrayList<>(findLinks(media));
+        links.addAll(probeLibraries(otherCandidates(media), true));
+        links.addAll(findLinks(players));
+        links.addAll(probeLibraries(otherCandidates(players), embeds || force));
+        if (links.isEmpty() && pv.page() != null) {
+            links.addAll(findLinks(pv.page()));
+            links.addAll(probeLibraries(otherCandidates(pv.page()), embeds || force));
+        }
+        return links;
     }
 
     private void enqueue(Job job) {
@@ -1153,8 +1259,16 @@ public final class InstaTray {
         return file;
     }
 
-    /** Pixiv needs a one-time OAuth login: gallery-dl walks the user through it in Terminal and caches the token. */
+    /** Set once Terminal was opened for the Pixiv login, so repeated failures don't keep opening it. */
+    private volatile boolean pixivLoginOpened;
+
+    /**
+     * Pixiv needs a one-time OAuth login: gallery-dl walks the user through it in Terminal and caches the token.
+     * Opened by the first Pixiv download that fails for lack of a token (once per session).
+     */
     void connectPixiv() {
+        if (pixivLoginOpened) return;
+        pixivLoginOpened = true;
         String galleryDl = findBin("gallery-dl");
         if (galleryDl == null) {
             notify("InstaTray", "gallery-dl todavía no está instalado; vuelve a intentarlo en un minuto");
@@ -1269,6 +1383,105 @@ public final class InstaTray {
         return out;
     }
 
+    /**
+     * Video URLs found in a pasted page (its HTML source, or the HTML flavor of a rich copy), best first.
+     * {@code media}: what the page itself plays (video/source tags, og:video, JSON-LD contentUrl, .mp4/.m3u8/.mpd
+     * URLs); {@code players}: embedded players (iframes, JSON-LD embedUrl); {@code page}: canonical URL or null.
+     */
+    record PageVideos(List<String> media, List<String> players, String page) {
+        boolean isEmpty() {
+            return media.isEmpty() && players.isEmpty() && page == null;
+        }
+    }
+
+    private static final Pattern HTML_SOURCE =
+            Pattern.compile("<(?:!doctype\\s+html|html|head|body|video|iframe|meta)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_TAG =
+            Pattern.compile("<(video|source|iframe|embed|meta|link|base)\\b([^>]*)>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_ATTR =
+            Pattern.compile("([\\w:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))");
+    private static final Pattern MEDIA_URL = Pattern.compile(
+            "(?:https?:)?//[^\\s<>\"'`()]+?\\.(?:mp4|m4v|mov|webm|m3u8|mpd)(?:\\?[^\\s<>\"'`()]*)?(?=[\\s<>\"'`()]|$)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern JSON_VIDEO = Pattern.compile("\"(contentUrl|embedUrl)\"\\s*:\\s*\"([^\"]+)\"");
+
+    /** True if the text is HTML source rather than plain text with links. */
+    static boolean looksLikeHtml(String text) {
+        return HTML_SOURCE.matcher(text).find();
+    }
+
+    static PageVideos pageVideos(String html) {
+        // URLs inside scripts come JSON-escaped: "https:\/\/cdn\u002Fv.mp4"
+        String text = html.replace("\\/", "/").replaceAll("(?i)\\\\u002f", "/").replaceAll("(?i)\\\\u0026", "&");
+        String page = null, base = null;
+        List<String[]> found = new ArrayList<>(); // {kind, raw value}: "m" = media, "p" = player
+        Matcher t = HTML_TAG.matcher(text);
+        while (t.find()) {
+            String tag = t.group(1).toLowerCase(Locale.ROOT);
+            Map<String, String> a = new HashMap<>();
+            Matcher am = HTML_ATTR.matcher(t.group(2));
+            while (am.find()) {
+                String v = am.group(2) != null ? am.group(2) : am.group(3) != null ? am.group(3) : am.group(4);
+                a.putIfAbsent(am.group(1).toLowerCase(Locale.ROOT), v);
+            }
+            String prop = a.getOrDefault("property", a.getOrDefault("name", "")).toLowerCase(Locale.ROOT);
+            String type = a.getOrDefault("type", "").toLowerCase(Locale.ROOT);
+            switch (tag) {
+                case "base" -> base = a.get("href");
+                case "link" -> {
+                    if (a.getOrDefault("rel", "").equalsIgnoreCase("canonical")) page = a.get("href");
+                }
+                case "meta" -> {
+                    String content = a.get("content");
+                    if (content == null) continue;
+                    if (prop.equals("og:url") && page == null) page = content;
+                    else if (prop.matches("og:video(?::url|:secure_url)?|twitter:player:stream")) {
+                        found.add(new String[] {"m", content});
+                    } else if (prop.equals("twitter:player")) found.add(new String[] {"p", content});
+                }
+                case "video", "source" -> {
+                    if (type.startsWith("audio/") || type.startsWith("image/")) continue;
+                    String src = a.getOrDefault("src", a.get("data-src"));
+                    if (src != null) found.add(new String[] {"m", src});
+                }
+                default -> { // iframe, embed
+                    String src = a.getOrDefault("src", a.get("data-src"));
+                    if (src != null) found.add(new String[] {"p", src});
+                }
+            }
+        }
+        Matcher j = JSON_VIDEO.matcher(text);
+        while (j.find()) found.add(new String[] {j.group(1).equals("contentUrl") ? "m" : "p", j.group(2)});
+        Matcher mu = MEDIA_URL.matcher(text);
+        while (mu.find()) found.add(new String[] {"m", mu.group()});
+
+        String pageUrl = resolveUrl(null, page);
+        String baseUrl = base != null ? resolveUrl(pageUrl, base) : pageUrl;
+        Set<String> media = new LinkedHashSet<>(), players = new LinkedHashSet<>();
+        for (String[] f : found) {
+            String url = resolveUrl(baseUrl, f[1]);
+            if (url != null && !url.equals(pageUrl)) (f[0].equals("m") ? media : players).add(url);
+        }
+        players.removeAll(media);
+        return new PageVideos(new ArrayList<>(media), new ArrayList<>(players), pageUrl);
+    }
+
+    /** Absolute http(s) URL for an attribute value (entities decoded), or null (blob:, data:, unresolvable). */
+    static String resolveUrl(String base, String value) {
+        if (value == null) return null;
+        String v = value.trim().replace("&amp;", "&").replace("&#38;", "&").replace("&#x2F;", "/")
+                .replace("&#47;", "/").replace("&quot;", "").replace(" ", "%20");
+        if (v.startsWith("//")) v = "https:" + v;
+        if (v.matches("(?i)https?://.+")) return v;
+        if (v.isEmpty() || v.matches("(?i)[a-z][a-z0-9+.-]*:.*") || base == null) return null;
+        try {
+            String r = java.net.URI.create(base).resolve(v).toString();
+            return r.matches("(?i)https?://.+") ? r : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /** Lower-case host without "www.", or "" if the text isn't a URL. */
     static String host(String url) {
         Matcher m = URL_HOST.matcher(url);
@@ -1287,18 +1500,24 @@ public final class InstaTray {
 
     /** Library answers per URL; empty = not supported. Only complete answers are cached. */
     private final Map<String, Optional<Link>> probeCache = new ConcurrentHashMap<>();
+    /** Unsupported URLs only yt-dlp's Generic extractor would try: EMBED links while {@link #embeds} is on. */
+    private final Set<String> genericUrls = ConcurrentHashMap.newKeySet();
 
     /** Catch-all links for the URLs: first whatever yt-dlp takes, then creator-platform posts gallery-dl takes. */
-    List<Link> probeLibraries(List<String> urls) {
+    List<Link> probeLibraries(List<String> urls, boolean withEmbeds) {
         List<String> todo = urls.stream().filter(u -> !probeCache.containsKey(u)).toList();
         if (!todo.isEmpty()) {
-            if (probeCache.size() > 1000) probeCache.clear();
+            if (probeCache.size() > 1000) {
+                probeCache.clear();
+                genericUrls.clear();
+            }
             List<String> ytdl = runProbe("yt-dlp", YT_DLP_PROBE, List.of(), todo);
             List<String> rest = new ArrayList<>();
             for (int i = 0; i < todo.size(); i++) {
                 String url = todo.get(i);
                 String r = ytdl == null ? "-" : ytdl.get(i);
-                if (r.equals("-")) {
+                if (r.equals("-") || r.equals("*")) {
+                    if (r.equals("*")) genericUrls.add(url);
                     rest.add(url);
                     continue;
                 }
@@ -1327,6 +1546,9 @@ public final class InstaTray {
         for (String u : urls) {
             Optional<Link> l = probeCache.get(u);
             if (l != null && l.isPresent()) links.add(l.get());
+            else if (l != null && withEmbeds && genericUrls.contains(u)) {
+                links.add(new Link(Site.EMBED, "embed:" + host(u) + ":" + Integer.toHexString(u.hashCode()), u));
+            }
         }
         return links;
     }
@@ -1369,7 +1591,7 @@ public final class InstaTray {
     }
 
     private static String shortKey(String key) {
-        if (key.startsWith("ytdl:")) return key.split(":", 3)[2];
+        if (key.startsWith("ytdl:") || key.startsWith("embed:")) return key.split(":", 3)[2];
         if (key.startsWith("gdl:")) { // last path segment of the post URL
             return key.split(":", 3)[2].replaceFirst("[?#].*$", "").replaceFirst("/+$", "").replaceFirst("^.*/", "");
         }
@@ -1439,7 +1661,14 @@ public final class InstaTray {
             String ffmpeg = findBin("ffmpeg");
             if (ffmpeg != null && !gallery) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
             // a catch-all extractor may hand back a list (album, episode with parts): cap it
-            if (site == Site.OTHER) cmd.addAll(List.of("--playlist-items", "1:" + CATCH_ALL_MAX_ITEMS));
+            if (site == Site.OTHER || site == Site.EMBED) {
+                cmd.addAll(List.of("--playlist-items", "1:" + CATCH_ALL_MAX_ITEMS));
+            }
+            // what the Generic extractor found, shown in "Qué pasó": extractor, format, protocol, size
+            if (site == Site.EMBED) {
+                cmd.addAll(List.of("--print", "before_dl:" + FOUND_PREFIX + "%(extractor_key)s · %(format_id)s · "
+                        + "%(protocol)s · %(resolution)s · %(filesize,filesize_approx)s · %(url).120s"));
+            }
             if (cookies != null) {
                 // yt-dlp rewrites the cookie jar on exit, so it gets a copy holding only this site's cookies:
                 // the original stays intact and a full-browser export never leaks other sites' sessions
@@ -1489,6 +1718,13 @@ public final class InstaTray {
                     if (line.startsWith(TITLE_PREFIX)) {
                         job.title = line.substring(TITLE_PREFIX.length()).strip();
                         refreshTooltip();
+                        continue;
+                    }
+                    if (line.startsWith(FOUND_PREFIX)) {
+                        for (String l : describeFound(line.substring(FOUND_PREFIX.length())).split("\n")) {
+                            job.addOutput(l);
+                        }
+                        log("  " + line);
                         continue;
                     }
                     if (line.startsWith(PROGRESS_PREFIX)) {
@@ -1549,15 +1785,22 @@ public final class InstaTray {
             } else {
                 String msg = tail.toString();
                 boolean permanent = true;
+                boolean silent = false;
                 String all = job.outputText();
                 if (gallery && exit == 0) {
                     msg = "Ese post no tiene video ni animación (solo imágenes)";
                 } else if (site == Site.PIXIV && (all.contains("refresh-token") || all.contains("401")
                         || all.contains("Unauthorized") || all.contains("OAuth"))) {
-                    msg = "Pixiv pide conectar tu cuenta: menú de la esfera → Conectar Pixiv…";
+                    msg = "Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta";
+                    connectPixiv();
                 } else if (gallery && (all.contains("403") || all.contains("401") || all.contains("login")
                         || all.contains("Forbidden") || all.contains("cookies"))) {
                     msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
+                } else if (all.contains("anti-bot challenge")) {
+                    msg = "El sitio bloquea las descargas automáticas (Cloudflare)"; // retrying never helps
+                } else if (site == Site.EMBED && (msg.contains("Unsupported URL") || all.contains("404"))) {
+                    msg = "No se encontró ningún video en la página";
+                    silent = true; // the page was most likely copied for its text: never notify
                 } else if (all.contains("404") || all.contains("NotFound") || all.contains("not found")) {
                     msg = "No existe, se borró o es privado";
                 } else if (exit == 0 || msg.contains("is_live")) {
@@ -1571,7 +1814,7 @@ public final class InstaTray {
                     permanent = false; // network, rate limits, server errors: worth retrying
                     if (msg.startsWith("ERROR: ")) msg = msg.substring("ERROR: ".length());
                 }
-                fail(job, name, msg, permanent);
+                fail(job, name, msg, permanent, silent);
             }
         } catch (Exception e) {
             if (!job.cancelRequested) {
@@ -1606,6 +1849,10 @@ public final class InstaTray {
      * notifies. Permanent ones (live stream, no video, login needed, yt-dlp missing) fail right away.
      */
     private void fail(Job job, String name, String msg, boolean permanent) {
+        fail(job, name, msg, permanent, false);
+    }
+
+    private void fail(Job job, String name, String msg, boolean permanent, boolean silent) {
         if (!permanent && job.attempt < maxRetries) {
             job.attempt++;
             long wait = (long) retryDelaySec * job.attempt;
@@ -1626,11 +1873,25 @@ public final class InstaTray {
         job.status = Job.Status.FAILED;
         job.message = job.attempt > 0 ? msg + " (tras " + job.attempt + " reintentos)" : msg;
         setStatus("Falló " + name + " — mira el Historial");
+        if (silent) return;
         notify("No se pudo descargar " + name, job.message + " — abre el Historial para ver qué pasó o reintentar");
     }
 
     private static final String PROGRESS_PREFIX = "PROG ";
     private static final String TITLE_PREFIX = "TITLE ";
+    private static final String FOUND_PREFIX = "FOUND ";
+
+    /** "Generic · hls-1080 · m3u8_native · 1920x1080 · 734003200 · https://…" → readable line for "Qué pasó". */
+    static String describeFound(String raw) {
+        String[] f = raw.split(" · ", 6);
+        if (f.length < 6) return "Encontrado: " + raw;
+        String size = f[4].equals("NA") ? "tamaño desconocido" : formatBytes(parseOr(f[4], 0));
+        String how = f[2].startsWith("m3u8") ? "HLS (fragmentos .ts/.m4s)"
+                : f[2].startsWith("http_dash") || f[2].contains("dash") ? "DASH (fragmentos)"
+                : f[2].startsWith("http") ? "archivo directo por HTTP" : f[2];
+        return "Encontrado por " + f[0] + ": formato " + f[1] + ", " + how + ", " + (f[3].equals("NA") ? "resolución desconocida" : f[3]) + ", " + size
+                + "\n  origen: " + f[5];
+    }
     /** gallery-dl terminal-mode progress: " 45%  1.20MB 300.00kB/s". */
     private static final Pattern GALLERY_DL_PERCENT =
             Pattern.compile("^\\s*(\\d{1,3})%\\s+\\S+\\s+([\\d.]+[kMG]?B/s)?");

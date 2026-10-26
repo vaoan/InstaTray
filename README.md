@@ -15,6 +15,7 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 3. Los videos quedan en **`Documentos/Videos`**, o en la carpeta que elijas.
 
 - **Ventana principal:** desde el menú de la esfera (*Mostrar ventana*), o con doble clic en la app cuando ya está abierta (no abre otra copia).
+- **Campo "Enlace" de la ventana:** pega uno o varios enlaces y pulsa Enter o *Descargar*. Es como copiarlos, pero también vuelve a bajar lo ya descargado y prueba el extractor genérico (video embebido) aunque esa opción esté apagada. Si no encuentra un video compatible, el texto se queda en el campo para corregirlo.
 - **Cola e historial:** desde el menú de la esfera o con el botón de la ventana principal.
 - **Cerrar ventanas:** cerrarlas no cierra el programa. Para salir del todo usa *Salir*.
 
@@ -75,7 +76,7 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 | Iwara | `iwara.tv/video/…` | Para contenido restringido |
 | Patreon | `patreon.com/posts/…` | Solo lo que tu cuenta puede ver (públicos o creadores que apoyas) |
 | Weibo | `weibo.com/usuario/post`, `m.weibo.cn/detail/…` | No |
-| **Pixiv** · gallery-dl | `pixiv.net/artworks/…` (también `/en/`, `/i/…`, `member_illust.php?illust_id=`) | Conexión única: menú de la esfera → **Conectar Pixiv…** |
+| **Pixiv** · gallery-dl | `pixiv.net/artworks/…` (también `/en/`, `/i/…`, `member_illust.php?illust_id=`) | Conexión única (se abre sola la primera vez) |
 | **pixiv FANBOX** · gallery-dl | `creador.fanbox.cc/posts/…`, `fanbox.cc/@creador/posts/…` | Sí, y solo lo que tu cuenta puede ver |
 | **Fantia** · gallery-dl | `fantia.jp/posts/…` | Sí, y solo lo que tu cuenta puede ver |
 | **DeviantArt** · gallery-dl | `deviantart.com/artista/art/…-123456789` | No, para obras públicas |
@@ -96,9 +97,23 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 - Si el sitio solo tiene audio (SoundCloud, Bandcamp), se guarda igual como mp4 de solo audio.
 - Que yt-dlp tenga un extractor no garantiza que funcione: algunos están rotos hasta que yt-dlp los arregla (se actualiza solo cada semana).
 
+**Páginas con video embebido ("Video embebido", opcional, apagado por defecto):**
+- Se activa con **Buscar video embebido en otras páginas** (menú de la esfera o ventana). Para una página suelta no hace falta activarlo: basta pegarla en el campo **Enlace** de la ventana o usar *Descargar copiado*. Sirve para estudiar cómo se bajan de forma genérica los videos puestos dentro de una página cualquiera (blogs, noticias, documentación).
+- Si ningún extractor conoce la página, la recibe el **extractor genérico de yt-dlp**, que busca en el HTML: etiquetas `<video>`/`<source>`, manifiestos **HLS** (`.m3u8`) y **DASH** (`.mpd`), metadatos `og:video` y reproductores embebidos conocidos (Vimeo, YouTube, JW Player, Brightcove…). Un enlace directo a `.mp4` o `.m3u8` también sirve.
+- En **Qué pasó** se ve lo que encontró y cómo lo bajó, por ejemplo: `Encontrado por HTML5MediaEmbed: formato 1, archivo directo por HTTP, …` o `… HLS (fragmentos .ts/.m4s), 1920x1080, 700 MB`, seguido del origen y, en HLS, del número de fragmentos (`Total fragments`). Con videos grandes así se ve si vienen como un solo archivo o en cientos de partes.
+- Como con este modo cualquier página copiada se revisa, **si no tiene video no avisa**: queda en el historial como "No se encontró ningún video en la página".
+- Máximo **10** videos por página. El archivo se llama `dominio_título_[id].mp4`; con subcarpetas va a `Video embebido/`.
+- No hay ajustes especiales para ningún sitio: si el extractor genérico no encuentra el video (reproductores ofuscados, sitios que re-suben obras ajenas), no se baja.
+
+**Código de una página copiado (HTML):**
+- Si copias el **código fuente** de una página (Ver código fuente → Cmd+A → Cmd+C), o una parte de la página con el video dentro, InstaTray lee el HTML y baja el video. Funciona igual al copiar, pegando en el campo **Enlace** o con *Descargar copiado*.
+- Busca, en este orden: lo que la página reproduce (`<video>`/`<source>`, `og:video`, `contentUrl` de JSON-LD, enlaces `.mp4`/`.m3u8`/`.mpd` aunque estén dentro de scripts) y después los reproductores embebidos (`<iframe>`, también `data-src`). Las rutas relativas se completan con `<base>` o la URL canónica de la página.
+- Lo que la página reproduce se baja aunque *Buscar video embebido* esté apagado (copiar una página con video ya es pedirlo). Los `<iframe>` solo si los reconoce un extractor real (YouTube, Vimeo…), para no bajar anuncios. Si no encuentra nada, prueba la URL canónica de la página.
+- Se ignoran `blob:` (reproductores que arman el video en el navegador: copia la página de origen o el `.m3u8`), audio e imágenes. Máximo 5 enlaces por copia. No se usan trucos anti-bot: si el servidor del video exige sesión o bloquea, no se baja.
+
 **Pixiv:**
 - Pixiv no aloja videos normales. Lo animado son *ugoira* (cuadros sin sonido), que se convierten a mp4.
-- Necesita una conexión **única**: menú de la esfera → **Conectar Pixiv…**. Se abre la Terminal con `gallery-dl oauth:pixiv`; inicias sesión en el navegador y pegas el código.
+- Necesita una conexión **única**: la primera descarga de Pixiv que falle por eso abre la Terminal con `gallery-dl oauth:pixiv`; inicias sesión en el navegador, pegas el código y reintentas la descarga desde el historial.
 - Las obras R-18 requieren tener esa opción activada en tu cuenta de Pixiv.
 
 **No soportados:**
@@ -121,12 +136,13 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 | Avisar si una descarga falla | sí | Notificación **solo** cuando algo falla definitivamente. Lo que sale bien nunca notifica |
 | Carpeta de videos (*Cambiar…*) | `Documentos/Videos` | Selector de carpetas nativo de macOS |
 | Una subcarpeta por red social | no | `Videos/Instagram`, `Videos/YouTube`, `Videos/X`, `Videos/Twitch` |
+| Buscar video embebido en otras páginas | no | Las páginas que ningún extractor conoce pasan al extractor genérico de yt-dlp (ver "Video embebido") |
 | Reintentos automáticos | 2 (0–5) | Si falla por algo temporal, reintenta en silencio |
 | Espera entre reintentos | 30 s (10 s, 30 s, 1 min, 5 min) | Crece en cada intento: 1×, 2×, 3×… |
 
 **Qué se reintenta y qué no:**
 - **Sí se reintenta:** errores de red, límite de peticiones y errores del servidor.
-- **No se reintenta**, porque no se arreglaría: transmisión en vivo, post sin video, falta de sesión (cookies) y yt-dlp no instalado.
+- **No se reintenta**, porque no se arreglaría: transmisión en vivo, post sin video, falta de sesión (cookies), sitio que bloquea descargas automáticas (desafío anti-bot de Cloudflare) y yt-dlp no instalado.
 
 ## Cola e historial
 
@@ -293,6 +309,13 @@ puede ver. Al cancelar desde la cola, InstaTray lo borra.
 - **Descargas reales:** Niconico `sm9` (mp4 H.264) y una pista de SoundCloud (mp4 de solo audio).
 - **ArtStation:** gallery-dl corrió; el post solo tenía imágenes y dijo "Ese post no tiene video ni animación".
 - **TED:** el extractor de yt-dlp 2026.08.19 está roto ("the JSON object must be str…"); es un problema de yt-dlp, no de InstaTray.
+
+## Pruebas de la cuarta tanda (video embebido)
+
+- **Consulta:** una página de w3schools con `<video>` y un `.m3u8` público de prueba (test-streams.mux.dev) van al extractor genérico; Vimeo sigue yendo a su extractor y un canal de YouTube sigue ignorado.
+- **Descarga real en la app:** la página de w3schools bajó sus 2 videos (`HTML5MediaEmbed`, mp4 directo por HTTP). El HLS de prueba lo reconoce como `m3u8_native` 1080p.
+- **Sin video:** un artículo de example.com terminó en "No se encontró ningún video en la página", sin notificación.
+- **Modo apagado:** la misma página de w3schools se ignora.
 
 ## Arrancar al iniciar sesión
 
