@@ -5,10 +5,15 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.InetAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -2213,9 +2218,16 @@ public final class InstaTray implements WindowHost {
             try {
                 String brew = findBrew();
                 if (brew == null) {
-                    openSetupCommand();
-                    say.accept("Se abrió el instalador en Terminal: te pedirá tu contraseña.");
-                } else {
+                    HomebrewInstall hb = installHomebrew(say);
+                    brew = hb.brew();
+                    if (brew == null && hb.cancelled()) {
+                        say.accept("No se instaló nada: hace falta tu contraseña para instalar Homebrew.");
+                    } else if (brew == null) { // last resort: the official script in Terminal
+                        openSetupCommand();
+                        say.accept("No se pudo instalar Homebrew desde aquí: se abrió el instalador en Terminal.");
+                    }
+                }
+                if (brew != null) {
                     boolean ok = true;
                     List<String> missing = missingTools();
                     if (!missing.isEmpty()) {
@@ -2239,6 +2251,58 @@ public final class InstaTray implements WindowHost {
         }, "install-tools");
         t.setDaemon(true);
         t.start();
+    }
+
+    record HomebrewInstall(String brew, boolean cancelled) {}
+
+    /**
+     * Installs Homebrew from its official .pkg (latest GitHub release). macOS asks for the administrator password
+     * in its own dialog, so no Terminal is needed. Returns the brew path, or null and whether the user cancelled.
+     */
+    private static HomebrewInstall installHomebrew(Consumer<String> say) {
+        Path pkg = null;
+        try {
+            say.accept("Descargando Homebrew…");
+            HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(Duration.ofSeconds(20)).build();
+            String json = http.send(HttpRequest.newBuilder(URI.create("https://api.github.com/repos/Homebrew/brew/releases/latest"))
+                    .header("Accept", "application/vnd.github+json").build(), HttpResponse.BodyHandlers.ofString()).body();
+            String url = homebrewPkgUrl(json);
+            if (url == null) {
+                log("Homebrew .pkg not found in the latest release");
+                return new HomebrewInstall(null, false);
+            }
+            pkg = Files.createTempFile("Homebrew", ".pkg");
+            HttpResponse<Path> got = http.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofFile(pkg));
+            if (got.statusCode() != 200) {
+                log("Homebrew .pkg download -> HTTP " + got.statusCode());
+                return new HomebrewInstall(null, false);
+            }
+            say.accept("Instalando Homebrew… macOS te pedirá tu contraseña.");
+            String script = "do shell script \"/usr/sbin/installer -pkg \" & quoted form of \"" + esc(pkg.toString())
+                    + "\" & \" -target /\" with administrator privileges";
+            Process p = new ProcessBuilder("osascript", "-e", script).redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            int exit = p.waitFor();
+            log("Homebrew .pkg install -> exit " + exit + (out.isEmpty() ? "" : ": " + out));
+            boolean cancelled = exit != 0 && (out.contains("-128") || out.toLowerCase(Locale.ROOT).contains("cancel"));
+            return new HomebrewInstall(findBrew(), cancelled);
+        } catch (Exception e) {
+            log("ERROR installing Homebrew: " + e);
+            return new HomebrewInstall(null, false);
+        } finally {
+            try {
+                if (pkg != null) Files.deleteIfExists(pkg);
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    /** The Homebrew.pkg asset of a GitHub release JSON; only github.com downloads are accepted. */
+    static String homebrewPkgUrl(String releaseJson) {
+        Matcher m = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/Homebrew/brew/releases/download/[^\"]+\\.pkg)\"")
+                .matcher(releaseJson);
+        return m.find() ? m.group(1) : null;
     }
 
     /** setup.command sits next to InstaTray.jar in the bundle's Resources; it installs Homebrew (asks for the password). */

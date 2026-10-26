@@ -20,7 +20,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   selection follows `Job` objects. Talks to the app only through `WindowHost`.
 - `src/SettingsDialog.java` — "Ajustes" (⌘,): folder, clipboard, embeds, retries, notifications, cookie status,
   "Instalar o actualizar requisitos" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
-  runBrew waits for the running download, which may call ensureTools; no Homebrew → opens setup.command).
+  runBrew waits for the running download, which may call ensureTools). No Homebrew → the button installs it too
+  (user request): latest release's `Homebrew.pkg` (`homebrewPkgUrl`, github.com only) via `osascript … installer -pkg
+  … with administrator privileges` (native password dialog); setup.command in Terminal only if that fails.
 - `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
 - `src/WindowHost.java` — what the windows need from the app; `DownloadsWindow.PreviewHost` is the stub for previews.
 - `src/Theme.java` — light/dark palettes; appearance read at startup and every 3 s only while the window is visible.

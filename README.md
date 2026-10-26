@@ -144,7 +144,9 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 
 **Requisitos:** muestra «Todo instalado ✓» o qué falta (yt-dlp, gallery-dl, ffmpeg, deno). El botón **Instalar o
 actualizar requisitos** instala lo que falte con Homebrew y actualiza los cuatro; mientras tanto la cola espera a que
-termine la descarga en curso. Sin Homebrew, abre el instalador en Terminal (pide tu contraseña de administrador).
+termine la descarga en curso. **Si no hay Homebrew, también lo instala**: baja el instalador oficial (`Homebrew.pkg`
+de su página de GitHub) y macOS pide tu contraseña de administrador en su ventanita de siempre, sin Terminal. Solo si
+eso falla abre el instalador clásico en Terminal.
 
 **Qué se reintenta y qué no:**
 - **Sí se reintenta:** errores de red, límite de peticiones y errores del servidor.
