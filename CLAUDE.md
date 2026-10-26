@@ -18,8 +18,10 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/DownloadsWindow.java` — the only window: link field, filter chips, one painted row per job (buttons in a fixed
   column from `JobView.buttonBounds`), contextual footer, collapsible "Detalles" (yt-dlp output); polls every 500 ms;
   selection follows `Job` objects. Talks to the app only through `WindowHost`.
-- `src/SettingsDialog.java` — "Ajustes" (⌘,): folder, clipboard, embeds, retries, notifications, cookie status,
-  "Instalar o actualizar requisitos" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
+- `src/SettingsDialog.java` — "Ajustes" (⌘,), System Settings layout: a rounded `Card` per section, one `option()`
+  row each (title + grey help left, control right: `DownloadsWindow.Switch`, `Choice` pill menu, `PillButton`;
+  menus and "Cambiar…" share `CONTROL_W`). Folder, clipboard, embeds, retries, notifications, cookie status,
+  "Instalar o actualizar" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
   runBrew waits for the running download, which may call ensureTools). No Homebrew → the button installs it too
   (user request): latest release's `Homebrew.pkg` (`homebrewPkgUrl`, github.com only) via `osascript … installer -pkg
   … with administrator privileges` (native password dialog); setup.command in Terminal only if that fails.

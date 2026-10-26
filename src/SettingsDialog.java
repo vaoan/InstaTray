@@ -8,7 +8,11 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
-/** "Ajustes": the options that are set once (folder, clipboard, retries, notifications) and the cookie status. */
+/**
+ * "Ajustes": the options that are set once (folder, clipboard, retries, notifications) and the cookie status.
+ * Laid out like macOS System Settings: a rounded card per section, one row per option with its title and grey help on
+ * the left and its control (switch, menu, button) right-aligned, so every control sits in one column.
+ */
 final class SettingsDialog {
 
     private static final Integer[] RETRIES = {0, 1, 2, 3, 4, 5};
@@ -16,16 +20,17 @@ final class SettingsDialog {
     private static final Font BASE = new Font(Font.SANS_SERIF, Font.PLAIN, 13);
     private static final Font HELP = BASE.deriveFont(11f);
     private static final Font HEADER = BASE.deriveFont(Font.BOLD, 11f);
+    private static final int WIDTH = 520, PAD = 14, CONTROL_W = 120; // menus and "Cambiar…" share one width
 
     private final WindowHost host;
     private final JDialog dialog;
     private final JLabel folder = new JLabel();
-    private final JCheckBox subfolders = new JCheckBox("Una subcarpeta por red social");
-    private final JCheckBox watch = new JCheckBox("Vigilar portapapeles");
-    private final JCheckBox embeds = new JCheckBox("Buscar video embebido en otras páginas");
-    private final JComboBox<Integer> retries = new JComboBox<>(RETRIES);
-    private final JComboBox<Integer> delay = new JComboBox<>(DELAYS);
-    private final JCheckBox notify = new JCheckBox("Avisar con una notificación si una descarga falla");
+    private final DownloadsWindow.Switch subfolders = new DownloadsWindow.Switch();
+    private final DownloadsWindow.Switch watch = new DownloadsWindow.Switch();
+    private final DownloadsWindow.Switch embeds = new DownloadsWindow.Switch();
+    private final Choice<Integer> retries = new Choice<>(RETRIES, n -> n == 1 ? "1 vez" : n + " veces");
+    private final Choice<Integer> delay = new Choice<>(DELAYS, sec -> sec < 60 ? sec + " s" : sec / 60 + " min");
+    private final DownloadsWindow.Switch notify = new DownloadsWindow.Switch();
     private final JLabel cookies = new JLabel();
     private final JLabel tools = new JLabel();
     private final DownloadsWindow.PillButton install;
@@ -34,72 +39,51 @@ final class SettingsDialog {
     SettingsDialog(Frame owner, WindowHost host) {
         this.host = host;
         dialog = new JDialog(owner, "Ajustes", true);
-        install = new DownloadsWindow.PillButton("Instalar o actualizar requisitos", null, true, this::installTools);
+        install = new DownloadsWindow.PillButton("Instalar o actualizar", null, true, this::installTools);
         dialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
 
         JPanel root = new JPanel();
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(16, 20, 18, 20));
+        root.setBorder(new EmptyBorder(6, 20, 20, 20));
 
         DownloadsWindow.PillButton change = new DownloadsWindow.PillButton("Cambiar…", null, false, () -> {
             host.chooseVideosDir(dialog);
             load();
         });
-        JPanel folderRow = row(folder, Box.createHorizontalStrut(10), change);
-        section(root, "Carpeta", true);
-        root.add(folderRow);
-        add(root, subfolders, "Videos/Instagram, Videos/YouTube…");
-
-        section(root, "Descargas", false);
-        add(root, watch, "Descarga sola cada enlace de video que copies.");
-        add(root, embeds, "Reproductores, HLS y <video> de sitios que no están en la lista.");
-        delay.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> l, Object v, int i, boolean sel, boolean f) {
-                int sec = (Integer) v;
-                return super.getListCellRendererComponent(l, sec < 60 ? sec + " s" : sec / 60 + " min", i, sel, f);
-            }
-        });
-        JPanel retryRow = row(label("Si falla, reintentar "), retries, label(" veces, esperando "), delay);
-        root.add(retryRow);
-        root.add(help("Cada reintento espera un poco más."));
-
-        section(root, "Avisos", false);
-        add(root, notify, "Las descargas que salen bien nunca avisan.");
-
-        section(root, "Cookies", false);
+        change.setPreferredSize(new Dimension(CONTROL_W, 28));
+        folder.setFont(HELP);
+        folder.putClientProperty("role", "help");
+        card(root, "Carpeta",
+                option(title("Carpeta de videos"), folder, change),
+                option("Una subcarpeta por red social", "Videos/Instagram, Videos/YouTube…", subfolders));
+        card(root, "Descargas",
+                option("Vigilar portapapeles", "Descarga sola cada enlace de video que copies.", watch),
+                option("Buscar video embebido en otras páginas",
+                        "Reproductores, HLS y <video> de sitios que no están en la lista.", embeds),
+                option("Si falla, reintentar", "Solo errores temporales: red, servidor, límite de peticiones.", retries),
+                option("Espera entre reintentos", "Cada reintento espera un poco más.", delay));
+        card(root, "Avisos",
+                option("Avisar si una descarga falla", "Las descargas que salen bien nunca avisan.", notify));
         cookies.setFont(BASE);
         cookies.setText("Buscando cookies…"); // sizes the row before the real summary arrives
-        root.add(row(cookies));
-        root.add(help("Exporta las cookies de cada sitio a Descargas para videos privados."));
-
-        section(root, "Requisitos", false);
+        card(root, "Cookies",
+                option(cookies, help("Exporta las cookies de cada sitio a Descargas para videos privados."), null));
         tools.setFont(BASE);
         tools.setText("Revisando…");
-        root.add(row(tools));
-        root.add(Box.createVerticalStrut(6));
-        root.add(row(install));
-        root.add(help("Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."));
+        card(root, "Requisitos",
+                option(tools, help("Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."),
+                        install));
 
-        subfolders.addActionListener(e -> {
-            if (!loading) host.setSubfolders(subfolders.isSelected());
-            load();
-        });
-        watch.addActionListener(e -> {
-            if (!loading) host.setWatching(watch.isSelected());
-        });
-        embeds.addActionListener(e -> {
-            if (!loading) host.setEmbeds(embeds.isSelected());
-        });
-        notify.addActionListener(e -> {
-            if (!loading) host.setNotifications(notify.isSelected());
-        });
-        retries.addActionListener(e -> {
-            if (!loading) host.setMaxRetries((Integer) retries.getSelectedItem());
-        });
-        delay.addActionListener(e -> {
-            if (!loading) host.setRetryDelaySec((Integer) delay.getSelectedItem());
-        });
+        subfolders.onToggle = () -> flip(subfolders, host::setSubfolders);
+        watch.onToggle = () -> flip(watch, host::setWatching);
+        embeds.onToggle = () -> flip(embeds, host::setEmbeds);
+        notify.onToggle = () -> flip(notify, host::setNotifications);
+        retries.onChange = n -> {
+            if (!loading) host.setMaxRetries(n);
+        };
+        delay.onChange = sec -> {
+            if (!loading) host.setRetryDelaySec(sec);
+        };
 
         int menu = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
         InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -147,13 +131,13 @@ final class SettingsDialog {
     private void load() {
         showToolsState();
         loading = true;
-        folder.setText("Videos en: " + host.videosFolderLabel());
-        subfolders.setSelected(host.subfolders());
-        watch.setSelected(host.isWatching());
-        embeds.setSelected(host.embeds());
-        notify.setSelected(host.notifications());
-        retries.setSelectedItem(host.maxRetries());
-        delay.setSelectedItem(host.retryDelaySec());
+        folder.setText(host.videosFolderLabel());
+        subfolders.setOn(host.subfolders());
+        watch.setOn(host.isWatching());
+        embeds.setOn(host.embeds());
+        notify.setOn(host.notifications());
+        retries.set(host.maxRetries());
+        delay.set(host.retryDelaySec());
         loading = false;
     }
 
@@ -164,57 +148,210 @@ final class SettingsDialog {
     }
 
     private static void paint(Component c, Theme.Palette p) {
-        if (c instanceof JPanel || c instanceof JCheckBox) c.setBackground(p.window());
+        if (c instanceof JPanel) c.setBackground(p.window());
         if (c instanceof JLabel l) {
             Object role = l.getClientProperty("role");
-            l.setForeground("help".equals(role) ? p.secondary()
-                    : "header".equals(role) ? p.secondary() : p.text());
+            l.setForeground("help".equals(role) || "header".equals(role) ? p.secondary() : p.text());
         }
-        if (c instanceof JCheckBox b) b.setForeground(p.text());
         if (c instanceof Container k) for (Component child : k.getComponents()) paint(child, p);
+    }
+
+    private void flip(DownloadsWindow.Switch s, java.util.function.Consumer<Boolean> set) {
+        s.setOn(!s.isOn());
+        set.accept(s.isOn());
+        load(); // e.g. subfolders changes nothing else, but keeps every control showing the saved value
     }
 
     // ---------------------------------------------------------------- layout helpers
 
-    private static void section(JPanel root, String title, boolean first) {
-        if (!first) root.add(Box.createVerticalStrut(14));
-        JLabel l = new JLabel(title.toUpperCase());
-        l.setFont(HEADER);
-        l.putClientProperty("role", "header");
-        root.add(row(l));
-        root.add(Box.createVerticalStrut(6));
+    /** Grey caps header, then a rounded card holding the rows, separated by inset hairlines. */
+    private static void card(JPanel root, String title, JComponent... rows) {
+        JLabel h = new JLabel(title.toUpperCase());
+        h.setFont(HEADER);
+        h.putClientProperty("role", "header");
+        h.setBorder(new EmptyBorder(14, PAD, 6, 0));
+        JPanel hr = new JPanel(new BorderLayout());
+        hr.add(h);
+        hr.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hr.setMaximumSize(new Dimension(Integer.MAX_VALUE, hr.getPreferredSize().height));
+        root.add(hr);
+        Card card = new Card();
+        for (int i = 0; i < rows.length; i++) card.add(rows[i], i == 0);
+        root.add(card);
     }
 
-    private static void add(JPanel root, JCheckBox box, String helpText) {
-        box.setFont(BASE);
-        box.setOpaque(true);
-        root.add(row(box));
-        root.add(help(helpText));
+    private static JComponent option(String title, String helpText, JComponent control) {
+        return option(title(title), help(helpText), control);
     }
 
-    private static JComponent help(String text) {
-        JLabel l = new JLabel(text);
-        l.setFont(HELP);
-        l.putClientProperty("role", "help");
-        l.setBorder(new EmptyBorder(0, 24, 6, 0)); // lines up with the checkbox text
-        return row(l);
+    /** One row: title over help on the left, the control right-aligned and vertically centred. */
+    private static JComponent option(JLabel title, JLabel help, JComponent control) {
+        JPanel text = new JPanel();
+        text.setOpaque(false);
+        text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+        text.add(title);
+        text.add(Box.createVerticalStrut(2));
+        text.add(help);
+        JPanel row = new JPanel(new GridBagLayout());
+        row.setOpaque(false);
+        row.setBorder(new EmptyBorder(10, PAD, 10, PAD));
+        GridBagConstraints c = new GridBagConstraints();
+        c.weightx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.anchor = GridBagConstraints.WEST;
+        row.add(text, c);
+        if (control != null) {
+            c.weightx = 0;
+            c.fill = GridBagConstraints.NONE;
+            c.anchor = GridBagConstraints.EAST;
+            c.insets = new Insets(0, 16, 0, 0);
+            row.add(control, c);
+        }
+        return row;
     }
 
-    private static JLabel label(String text) {
+    private static JLabel title(String text) {
         JLabel l = new JLabel(text);
         l.setFont(BASE);
         return l;
     }
 
-    private static JPanel row(Component... parts) {
-        JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        for (Component c : parts) {
-            if (c instanceof JLabel l && l.getFont() == null) l.setFont(BASE);
-            p.add(c);
+    private static JLabel help(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(HELP);
+        l.putClientProperty("role", "help");
+        return l;
+    }
+
+    /** The rounded section background (System Settings' grouped list). */
+    private static final class Card extends JPanel {
+        Card() {
+            setOpaque(false);
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+            setAlignmentX(Component.LEFT_ALIGNMENT);
         }
-        p.setAlignmentX(Component.LEFT_ALIGNMENT);
-        p.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.getPreferredSize().height));
-        return p;
+
+        void add(JComponent row, boolean firstRow) {
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
+            if (!firstRow) add(new Hairline());
+            add(row);
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Theme.Palette p = Theme.current();
+            java.awt.geom.RoundRectangle2D r = new java.awt.geom.RoundRectangle2D.Double(.5, .5, getWidth() - 1, getHeight() - 1, 16, 16);
+            g.setColor(p.row());
+            g.fill(r);
+            g.setColor(Theme.isDark() ? Glass.rgba(0xFFFFFF, 20) : Glass.rgba(0x000000, 22));
+            g.draw(r);
+            g.dispose();
+        }
+    }
+
+    /** Separator between rows of a card, inset like macOS lists. */
+    private static final class Hairline extends JComponent {
+        Hairline() {
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(WIDTH - 40, 1);
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, 1);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            g.setColor(Theme.current().separator());
+            g.fillRect(PAD, 0, getWidth() - PAD * 2, 1);
+        }
+    }
+
+    /** A pop-up menu as a clear glass pill: "2 veces ⌄"; the options open in a menu under it. */
+    private static final class Choice<T> extends JComponent {
+        java.util.function.Consumer<T> onChange = v -> {};
+        private final T[] options;
+        private final java.util.function.Function<T, String> text;
+        private T value;
+        private boolean hover;
+
+        Choice(T[] options, java.util.function.Function<T, String> text) {
+            this.options = options;
+            this.text = text;
+            value = options[0];
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    JPopupMenu menu = new JPopupMenu();
+                    for (T o : Choice.this.options) {
+                        JMenuItem item = new JCheckBoxMenuItem(text.apply(o), o.equals(value));
+                        item.addActionListener(ev -> {
+                            set(o);
+                            onChange.accept(o);
+                        });
+                        menu.add(item);
+                    }
+                    menu.show(Choice.this, 0, getHeight());
+                }
+
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent e) {
+                    hover = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent e) {
+                    hover = false;
+                    repaint();
+                }
+            });
+        }
+
+        void set(T v) {
+            value = v;
+            repaint();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            FontMetrics fm = getFontMetrics(BASE);
+            int w = 0;
+            for (T o : options) w = Math.max(w, fm.stringWidth(text.apply(o)));
+            return new Dimension(Math.max(CONTROL_W, w + 44), 28);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            Theme.Palette p = Theme.current();
+            Glass.button(g, new Rectangle(0, 0, getWidth(), getHeight()), false, hover, Theme.isDark());
+            g.setFont(BASE);
+            FontMetrics fm = g.getFontMetrics();
+            g.setColor(p.buttonText());
+            g.drawString(text.apply(value), 14, (getHeight() - 2 + fm.getAscent() - fm.getDescent()) / 2);
+            // chevron
+            double cx = getWidth() - 17, cy = (getHeight() - 2) / 2.0;
+            g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            java.awt.geom.Path2D v = new java.awt.geom.Path2D.Double();
+            v.moveTo(cx - 3.5, cy - 1.5);
+            v.lineTo(cx, cy + 2);
+            v.lineTo(cx + 3.5, cy - 1.5);
+            g.setColor(p.secondary());
+            g.draw(v);
+            g.dispose();
+        }
     }
 
     // ---------------------------------------------------------------- --preview

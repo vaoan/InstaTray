@@ -129,7 +129,9 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 
 ## Ajustes
 
-Botón **Ajustes** de la ventana (o ⌘,). Los cambios se aplican al momento.
+Botón **Ajustes** de la ventana (o ⌘,). Los cambios se aplican al momento. Está ordenada como los Ajustes del
+Sistema de macOS: una tarjeta redondeada por sección y una fila por opción, con su nombre y una ayuda gris a la
+izquierda y el control a la derecha (interruptor, menú o botón), todos en la misma columna.
 
 Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties`.
 
@@ -144,7 +146,7 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 | Espera entre reintentos | 30 s (10 s, 30 s, 1 min, 5 min) | Crece en cada intento: 1×, 2×, 3×… |
 
 **Requisitos:** muestra «Todo instalado ✓» o qué falta (yt-dlp, gallery-dl, ffmpeg, deno). El botón **Instalar o
-actualizar requisitos** instala lo que falte con Homebrew y actualiza los cuatro; mientras tanto la cola espera a que
+actualizar** instala lo que falte con Homebrew y actualiza los cuatro; mientras tanto la cola espera a que
 termine la descarga en curso. **Si no hay Homebrew, también lo instala**: baja el instalador oficial (`Homebrew.pkg`
 de su página de GitHub) y macOS pide tu contraseña de administrador en su ventanita de siempre, sin Terminal. Solo si
 eso falla abre el instalador clásico en Terminal.

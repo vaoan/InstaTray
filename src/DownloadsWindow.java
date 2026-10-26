@@ -228,6 +228,7 @@ final class DownloadsWindow {
         };
         link(watchLabel, toggleWatch);
         watchSwitch.onToggle = toggleWatch;
+        watchSwitch.setToolTipText("Vigilar portapapeles");
         link(folderLabel, host::openVideosFolder);
         JLabel dot = new JLabel(" · ");
         dot.setFont(SMALL);
@@ -937,20 +938,23 @@ final class DownloadsWindow {
         }
     }
 
-    /** A small macOS-style switch (accent track when on). */
-    private static final class Switch extends JComponent {
+    /** A small macOS-style switch (accent track when on); also used by the settings. */
+    static final class Switch extends JComponent {
         Runnable onToggle = () -> {};
         private boolean on;
 
         Switch() {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setToolTipText("Vigilar portapapeles");
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     onToggle.run();
                 }
             });
+        }
+
+        boolean isOn() {
+            return on;
         }
 
         void setOn(boolean on) {
