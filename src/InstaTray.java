@@ -1828,7 +1828,7 @@ public final class InstaTray implements WindowHost {
                     "--no-playlist",
                     "--match-filter", "!is_live", // never start recording a live stream
                     "-f", "bv*+ba/b",
-                    // H.264 + AAC first: M1 Macs cannot play AV1/VP9 in QuickTime
+                    // H.264 + AAC first: QuickTime on Apple Silicon cannot play AV1/VP9
                     "-S", "vcodec:h264,res,acodec:aac",
                     "--merge-output-format", "mp4",
                     // sites that only offer VP8/VP9 webm (e.g. 9GAG) get converted; files already in mp4 are left alone

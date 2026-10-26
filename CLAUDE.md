@@ -71,10 +71,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Pixiv needs `gallery-dl oauth:pixiv` once (token cached by gallery-dl); no menu item (user removed it): the first Pixiv
   download failing for lack of a token opens Terminal (`connectPixiv()`, once per session).
 - Deliberately NOT supported (re-host others' work without permission): Kemono, Coomer, nhentai, ExHentai, Hitomi,
-  manga aggregators (e.g. myreadingmanga), boorus. The user asked for myreadingmanga twice; it was declined.
-  A third try went through EMBED and hit Cloudflare: never add `generic:impersonate` / anti-bot workarounds.
-  A fourth try pasted the page HTML (DevTools element): the .mp4 was found but Cloudflare 403'd it — declined again;
-  don't reuse `cf_clearance`/browser cookies or impersonation to get past it.
+  manga aggregators, boorus. Never add `generic:impersonate` / anti-bot workarounds, and don't reuse
+  `cf_clearance`/browser cookies or impersonation to get past Cloudflare or similar blocks.
 
 ## Catch-all sites
 - `otherCandidates()` picks URLs no rule matched and whose host isn't a named site's (so profiles/channels/live
@@ -90,7 +88,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   downloads): URLs whose first suitable yt-dlp extractor is Generic (probe prints `*`, kept in `genericUrls`, checked
   after gallery-dl). Key `embed:<host>:<url hash>`. Prints `FOUND …` (`describeFound()`) into "Qué pasó".
   No-video/404 results fail silently (no notification). No site-specific workarounds; never tailor it to piracy
-  sites (the user asked for wcostream.tv; declined).
+  sites.
 - Pasted HTML (`looksLikeHtml`: page source in the plain text, or the `allHtmlFlavor` of a rich copy via
   `readClipboardHtml()`): `pageVideos()` → media (video/source, og:video, JSON-LD contentUrl, .mp4/.m3u8/.mpd URLs,
   JSON-escaped too, relative paths, `data-video`/`data-hls-src`… attrs, player configs `file:`/`hls:`/`videoUrl:` also
@@ -101,14 +99,13 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   embeds/force; canonical URL only as fallback. Page source replaces the plain-text scan (otherwise every css/js URL
   would be probed). blob: URLs and `NOT_VIDEO` extensions
   (images/audio/css/js/subtitles; JSON-LD contentUrl also names images) skipped. No Referer/anti-bot tricks.
-  The user asked for a real/headless browser to fetch the "real" video from pasted HTML: declined (same bypass).
-  Instead: EMBED 403 → permanent "no deja bajar este video fuera de su página" and `Job.page` (8th TSV column) keeps
+  No real/headless browser to fetch the "real" video from pasted HTML (same bypass). Instead: EMBED 403 → permanent "no deja bajar este video fuera de su página" and `Job.page` (8th TSV column) keeps
   the pasted page, which the row's "Abrir página" opens so the user can save it by hand.
 - Window link field (`WindowHost.submit`) and tray "Descargar enlace copiado ahora" call `handleText(text, force=true)`:
   re-download allowed and EMBED allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
 
 ## Windows
-- User asked for Windows support (2026-10-26). Never tested on a real Windows (no VM on this M1): keep the logic in
+- Windows support added 2026-10-26, never tested on a real Windows (no Windows VM available): keep the logic in
   `Platform` with unit tests, and preview with `java -Dos.name="Windows 11" … DownloadsWindow --preview DIR`.
 - Tools: Java/Python/ffmpeg/deno via winget (`windowsTools()`); yt-dlp + gallery-dl in the app's venv
   `%LOCALAPPDATA%\InstaTray\tools` (pip), because the catch-all probes import their Python packages — the standalone
@@ -160,17 +157,15 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `--print after_move:filepath` implies quiet mode, which hides progress: keep `--no-quiet --progress --newline` and the
   `PROG downloaded total` progress template. Video+audio formats download as two files: weight 90/10 (`Progress`).
 - Pass yt-dlp a *filtered copy* of the cookies (`writeSiteCookies`): only the site's domains. Never print cookie values.
-  The user deleted their full-browser export; per-site exports are what's in Downloads now.
 - "Copiar enlace" uses `copyToClipboardSilently()` (sets `lastClip`) so the watcher doesn't re-download it.
-- `.app` launched from Finder has a minimal PATH: binaries are resolved from `BIN_DIRS` explicitly.
-- Keep `-S vcodec:h264,res,acodec:aac` + `--recode-video mp4` (M1 can't play AV1/VP9/webm in QuickTime; recode only
+- `.app` launched from Finder has a minimal PATH: binaries are resolved from `Platform.binDirs()` explicitly.
+- Keep `-S vcodec:h264,res,acodec:aac` + `--recode-video mp4` (QuickTime on Apple Silicon can't play AV1/VP9/webm; recode only
   runs when the file isn't mp4 already), `--no-playlist`, `--match-filter !is_live`; channel/live URLs never match.
 - Requirements are installed automatically (user request). In-app: `ensureTools()` (missing tools) and a weekly
   `brew upgrade yt-dlp`; both go through `runInstall()`, which sets `toolsBusy` so the worker doesn't start downloads.
   `HOMEBREW_NO_AUTO_UPDATE=1` only for installs — an upgrade needs the index refresh to see new versions.
 - Compiled with `--release 21` so any recent Homebrew openjdk runs it; the launcher resolves java via `brew --prefix`.
 - YouTube needs `deno` on PATH and the user's YouTube cookies (without them YouTube answers "confirm you're not a bot").
-- The user's MacBook Air M1 has no notch; don't blame hidden menu-bar items on a notch.
 
 ## Verifying without screen-recording/accessibility permissions
 `screencapture` works since 2026-10-26 (permission granted): `screencapture -x -R X,0,W,30 out.png` with X/W of the
