@@ -1,12 +1,12 @@
 import java.awt.*;
-import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 
 /**
- * The 2000s glass skin: WMP11's glossy black chrome in dark mode, Vista's light-blue glass in light mode.
- * Every surface is two gradients split at half height (the "glass line"). Also the progress-bar animation math.
+ * The Liquid Glass skin (macOS 26 style): flat surfaces with soft vertical light, pill-shaped controls, the system
+ * accent blue, and a thin specular rim on every glass element (bright along the top edge, fading downwards).
+ * Also the progress-bar animation math.
  */
 final class Glass {
 
@@ -34,231 +34,193 @@ final class Glass {
 
     // ---------------------------------------------------------------- surfaces
 
-    /** Fills shape with a top-half and a bottom-half gradient that meet at the glass line. */
-    static void fill(Graphics2D g, Shape shape, Color top1, Color top2, Color bottom1, Color bottom2) {
-        Rectangle2D b = shape.getBounds2D();
-        float mid = (float) (b.getY() + b.getHeight() / 2);
-        Shape old = g.getClip();
-        g.clip(new Rectangle2D.Double(b.getX(), b.getY(), b.getWidth(), b.getHeight() / 2));
-        g.setPaint(new GradientPaint(0, (float) b.getY(), top1, 0, mid, top2));
-        g.fill(shape);
-        g.setClip(old);
-        g.clip(new Rectangle2D.Double(b.getX(), mid, b.getWidth(), b.getHeight() / 2 + 1));
-        g.setPaint(new GradientPaint(0, mid, bottom1, 0, (float) b.getMaxY(), bottom2));
-        g.fill(shape);
-        g.setClip(old);
+    static final int ACCENT_LIGHT = 0x007AFF, ACCENT_DARK = 0x0A84FF;
+
+    static Color accent(boolean dark) {
+        return rgb(dark ? ACCENT_DARK : ACCENT_LIGHT);
     }
 
-    /** Toolbar / footer background, full width. */
-    static void chrome(Graphics2D g, int w, int h, boolean dark, boolean glowLine) {
-        Rectangle r = new Rectangle(0, 0, w, h);
-        if (dark) {
-            fill(g, r, rgb(0x3B3F45), rgb(0x1C1E22), rgb(0x050506), rgb(0x121316));
-            g.setColor(Color.BLACK);
-            g.fillRect(0, h - 1, w, 1);
-            if (glowLine) { // WMP11's thin cyan light under the toolbar
-                g.setPaint(new LinearGradientPaint(0, 0, w, 0, new float[]{0f, .5f, 1f},
-                        new Color[]{new Color(0x36C8FF, true), rgba(0x36C8FF, 200), new Color(0x36C8FF, true)}));
-                g.fillRect(0, h - 1, w, 1);
-            }
-        } else {
-            fill(g, r, rgb(0xE3F1FD), rgb(0xCBE4FA), rgb(0xB4D7F6), rgb(0xD6EBFC));
-            g.setColor(rgb(0x8DB2E3));
-            g.fillRect(0, h - 1, w, 1);
-        }
-    }
-
-    /** Flat-ish band under the toolbar (the filter chips sit on it). */
-    static void band(Graphics2D g, int w, int h, boolean dark) {
-        g.setPaint(dark ? new GradientPaint(0, 0, rgb(0x141518), 0, h, rgb(0x0B0B0D))
-                : new GradientPaint(0, 0, rgb(0xF4F9FE), 0, h, rgb(0xE9F3FC)));
+    /** Toolbar background, full width: frosted, a highlight on its top edge and a hairline under it. */
+    static void chrome(Graphics2D g, int w, int h, boolean dark) {
+        g.setPaint(dark ? new GradientPaint(0, 0, rgb(0x2C2C30), 0, h, rgb(0x232326))
+                : new GradientPaint(0, 0, rgb(0xFDFDFF), 0, h, rgb(0xF4F4F8)));
         g.fillRect(0, 0, w, h);
-        if (!dark) {
-            g.setColor(rgb(0xD5E5F5));
-            g.fillRect(0, h - 1, w, 1);
-        }
-    }
-
-    /** Status bar at the bottom. */
-    static void footer(Graphics2D g, int w, int h, boolean dark) {
-        Rectangle r = new Rectangle(0, 0, w, h);
-        if (dark) {
-            fill(g, r, rgb(0x25282D), rgb(0x111316), rgb(0x050506), rgb(0x0E0F12));
-            g.setColor(Color.BLACK);
-        } else {
-            fill(g, r, rgb(0xF0F6FC), rgb(0xDCE9F6), rgb(0xCFE0F2), rgb(0xE1EDF9));
-            g.setColor(rgb(0xA9C4E3));
-        }
+        g.setColor(rgba(0xFFFFFF, dark ? 22 : 255));
         g.fillRect(0, 0, w, 1);
+        g.setColor(dark ? rgba(0x000000, 150) : rgba(0x000000, 24));
+        g.fillRect(0, h - 1, w, 1);
     }
 
-    /** Row background: a faint gradient in dark mode, Explorer's blue highlight when selected. */
+    /** Band under the toolbar (the filter chips sit on it): the plain window colour. */
+    static void band(Graphics2D g, int w, int h, boolean dark) {
+        g.setColor(dark ? rgb(0x1A1A1C) : rgb(0xF2F2F7));
+        g.fillRect(0, 0, w, h);
+    }
+
+    /** Status bar at the bottom: frosted like the toolbar, hairline on top. */
+    static void footer(Graphics2D g, int w, int h, boolean dark) {
+        g.setPaint(dark ? new GradientPaint(0, 0, rgb(0x262629), 0, h, rgb(0x202023))
+                : new GradientPaint(0, 0, rgb(0xFAFAFC), 0, h, rgb(0xF2F2F6)));
+        g.fillRect(0, 0, w, h);
+        g.setColor(dark ? rgba(0x000000, 150) : rgba(0x000000, 24));
+        g.fillRect(0, 0, w, 1);
+        g.setColor(rgba(0xFFFFFF, dark ? 14 : 200));
+        g.fillRect(0, 1, w, 1);
+    }
+
+    /** Row background: nothing when idle, a rounded accent tint when selected. */
     static void row(Graphics2D g, int w, int h, boolean dark, boolean selected) {
-        if (selected) {
-            RoundRectangle2D sel = new RoundRectangle2D.Double(4.5, 1.5, w - 9, h - 3, 6, 6);
-            if (dark) {
-                g.setPaint(new GradientPaint(0, 0, rgb(0x123A57), 0, h, rgb(0x0B2236)));
-                g.fill(sel);
-                g.setColor(rgb(0x2C9BE0));
-            } else {
-                g.setPaint(new GradientPaint(0, 0, rgb(0xF2F9FE), 0, h, rgb(0xD6F0FD)));
-                g.fill(sel);
-                g.setColor(rgb(0x84ACDD));
-            }
-            g.draw(sel);
-            return;
-        }
-        if (dark) {
-            g.setPaint(new GradientPaint(0, 0, rgb(0x111317), 0, h, rgb(0x0C0D10)));
-            g.fillRect(0, 0, w, h);
-        }
+        if (!selected) return;
+        RoundRectangle2D sel = new RoundRectangle2D.Double(6.5, 2.5, w - 13, h - 5, 14, 14);
+        g.setColor(rgba(dark ? ACCENT_DARK : ACCENT_LIGHT, dark ? 56 : 30));
+        g.fill(sel);
+        g.setColor(rgba(dark ? ACCENT_DARK : ACCENT_LIGHT, dark ? 110 : 70));
+        g.draw(sel);
     }
 
-    /** A glass button body (text and icon are drawn on top by the caller). */
+    /** Light passing through a glass shape: a soft sheen on its top half and a rim bright on top, faint below. */
+    static void sheen(Graphics2D g, RoundRectangle2D shape, int sheenAlpha, int rimTop, int rimBottom) {
+        Rectangle2D b = shape.getBounds2D();
+        g.setPaint(new GradientPaint(0, (float) b.getY(), rgba(0xFFFFFF, sheenAlpha),
+                0, (float) b.getCenterY(), rgba(0xFFFFFF, 0)));
+        g.fill(shape);
+        RoundRectangle2D rim = new RoundRectangle2D.Double(b.getX() + .5, b.getY() + .5, b.getWidth() - 1, b.getHeight() - 1,
+                Math.max(0, shape.getArcWidth() - 1), Math.max(0, shape.getArcHeight() - 1));
+        g.setPaint(new GradientPaint(0, (float) b.getY(), rgba(0xFFFFFF, rimTop),
+                0, (float) b.getMaxY(), rgba(0xFFFFFF, rimBottom)));
+        g.draw(rim);
+    }
+
+    private static RoundRectangle2D pill(Rectangle r) {
+        return new RoundRectangle2D.Double(r.x, r.y, r.width, r.height, r.height, r.height);
+    }
+
+    /** Soft shadow under a raised control. */
+    private static void shadow(Graphics2D g, Rectangle r, int alpha) {
+        g.setColor(rgba(0x000000, alpha));
+        g.fill(new RoundRectangle2D.Double(r.x, r.y + 1, r.width, r.height, r.height, r.height));
+    }
+
+    /** A pill button body (text and icon are drawn on top by the caller): accent glass or clear glass. */
     static void button(Graphics2D g, Rectangle r, boolean primary, boolean hover, boolean dark) {
-        double arc = dark ? r.height : 6; // WMP11 pills, Vista's almost square buttons
-        RoundRectangle2D shape = new RoundRectangle2D.Double(r.x + .5, r.y + .5, r.width - 1, r.height - 1, arc, arc);
+        Rectangle body = new Rectangle(r.x + 1, r.y + 1, r.width - 2, r.height - 3);
+        RoundRectangle2D shape = pill(body);
         if (primary) {
-            if (dark) {
-                g.setColor(rgba(0x29B6FF, hover ? 110 : 60)); // glow
-                g.fill(new RoundRectangle2D.Double(r.x - 1.5, r.y - 1.5, r.width + 3, r.height + 3, arc + 3, arc + 3));
-                fill(g, shape, rgb(hover ? 0xB0EDFF : 0x8FE3FF), rgb(0x2AA7E8), rgb(0x0A6FB8), rgb(0x1C8FD6));
-            } else {
-                fill(g, shape, rgb(hover ? 0xC3E6FA : 0xA7D9F5), rgb(0x5FB5E8), rgb(0x2D8FD5), rgb(0x49A7E3));
-            }
+            shadow(g, body, dark ? 90 : 40);
+            int base = dark ? (hover ? 0x2B95FF : ACCENT_DARK) : (hover ? 0x1A88FF : ACCENT_LIGHT);
+            g.setColor(rgb(base));
+            g.fill(shape);
+            sheen(g, shape, 60, 150, 20);
         } else if (dark) {
-            fill(g, shape, rgb(hover ? 0x666D78 : 0x4D535C), rgb(0x2C3037), rgb(0x15171B), rgb(hover ? 0x2E343C : 0x22262C));
-        } else if (hover) { // Vista's light-blue hover
-            fill(g, shape, rgb(0xEAF6FD), rgb(0xD9F0FC), rgb(0xBEE6FD), rgb(0xA7D9F5));
+            shadow(g, body, 70);
+            g.setColor(rgba(0xFFFFFF, hover ? 40 : 24));
+            g.fill(shape);
+            sheen(g, shape, 18, 70, 8);
         } else {
-            fill(g, shape, rgb(0xF2F2F2), rgb(0xEBEBEB), rgb(0xDDDDDD), rgb(0xCFCFCF));
+            shadow(g, body, 22);
+            g.setColor(hover ? rgb(0xF6F6F9) : Color.WHITE);
+            g.fill(shape);
+            g.setColor(rgba(0x000000, hover ? 40 : 28));
+            g.draw(new RoundRectangle2D.Double(body.x + .5, body.y + .5, body.width - 1, body.height - 1, body.height, body.height));
         }
-        g.setColor(dark ? Color.BLACK : primary ? rgb(0x2C628B) : hover ? rgb(0x3C7FB1) : rgb(0x707070));
-        g.draw(shape);
-        // inner highlight along the top edge
-        g.setColor(dark ? rgba(0xFFFFFF, primary ? 150 : 60) : rgba(0xFFFFFF, 200));
-        g.draw(new RoundRectangle2D.Double(r.x + 1.5, r.y + 1.5, r.width - 3, r.height - 3, Math.max(0, arc - 2), Math.max(0, arc - 2)));
     }
 
-    /** A filter chip body. */
+    /** A filter chip body: accent glass when on, a faint tint when off. */
     static void chip(Graphics2D g, Rectangle r, boolean on, boolean dark) {
-        double arc = dark ? r.height : 6;
-        RoundRectangle2D shape = new RoundRectangle2D.Double(r.x + .5, r.y + .5, r.width - 1, r.height - 1, arc, arc);
-        if (dark) {
-            if (on) {
-                g.setColor(rgba(0x2BB5FF, 70));
-                g.fill(new RoundRectangle2D.Double(r.x - 1, r.y - 1, r.width + 2, r.height + 2, arc + 2, arc + 2));
-                fill(g, shape, rgb(0x77D9FF), rgb(0x1E95D8), rgb(0x0B63A6), rgb(0x1580C6));
-            } else {
-                fill(g, shape, rgb(0x2F333A), rgb(0x23262B), rgb(0x16181B), rgb(0x1C1F23));
-            }
-            g.setColor(Color.BLACK);
+        RoundRectangle2D shape = pill(r);
+        if (on) {
+            g.setColor(accent(dark));
+            g.fill(shape);
+            sheen(g, shape, 50, 140, 20);
         } else {
-            if (on) fill(g, shape, rgb(0xE5F4FD), rgb(0xC4E5F8), rgb(0xA9D8F5), rgb(0xC9E7F9));
-            else fill(g, shape, rgb(0xFDFDFD), rgb(0xF4F4F4), rgb(0xEBEBEB), rgb(0xE6E6E6));
-            g.setColor(on ? rgb(0x3C7FB1) : rgb(0xB5B5B5));
+            g.setColor(dark ? rgba(0xFFFFFF, 20) : rgba(0x000000, 13));
+            g.fill(shape);
         }
-        g.draw(shape);
     }
 
-    /** Glossy progress bar with a moving shimmer: cyan (dark) or Vista green (light). */
+    /** Thin pill progress bar, accent gradient with a soft moving shimmer. */
     static void progress(Graphics2D g, Rectangle r, double fraction, long now, boolean dark) {
         RoundRectangle2D track = track(g, r, dark);
         int fw = (int) Math.round(r.width * Math.max(0, Math.min(1, fraction)));
         if (fw <= 0) return;
         Shape old = g.getClip();
         g.clip(track);
-        Rectangle filled = new Rectangle(r.x, r.y, fw, r.height);
-        paintFill(g, filled, dark);
+        RoundRectangle2D filled = new RoundRectangle2D.Double(r.x, r.y, Math.max(fw, r.height), r.height, r.height, r.height);
+        g.setPaint(new GradientPaint(r.x, 0, rgb(dark ? 0x64D2FF : 0x5AC8FA), r.x + Math.max(fw, 1), 0, accent(dark)));
+        g.fill(filled);
+        g.setPaint(new GradientPaint(0, r.y, rgba(0xFFFFFF, 90), 0, r.y + r.height / 2f, rgba(0xFFFFFF, 0)));
+        g.fill(filled);
         g.clip(filled);
         double x = r.x + shimmerX(now, fw);
         g.setPaint(new LinearGradientPaint((float) x, 0, (float) (x + SHIMMER_BAND), 0, new float[]{0f, .5f, 1f},
-                new Color[]{rgba(0xFFFFFF, 0), rgba(0xFFFFFF, dark ? 150 : 170), rgba(0xFFFFFF, 0)}));
+                new Color[]{rgba(0xFFFFFF, 0), rgba(0xFFFFFF, dark ? 80 : 110), rgba(0xFFFFFF, 0)}));
         g.fill(filled);
         g.setClip(old);
     }
 
-    /** Progress bar whose end is unknown: a glossy block goes back and forth. */
+    /** Progress bar whose end is unknown: an accent capsule glides back and forth. */
     static void indeterminate(Graphics2D g, Rectangle r, long now, boolean dark) {
         RoundRectangle2D track = track(g, r, dark);
         int block = Math.max(30, r.width / 4);
         Shape old = g.getClip();
         g.clip(track);
         double x = r.x + sweepX(now, r.width, block);
-        Rectangle b = new Rectangle((int) x, r.y, block, r.height);
-        Area fade = new Area(b);
-        g.setPaint(new LinearGradientPaint(b.x, 0, b.x + block, 0, new float[]{0f, .25f, .75f, 1f},
-                new Color[]{rgba(dark ? 0x36BDF5 : 0x20B11A, 0), rgba(dark ? 0x36BDF5 : 0x20B11A, 255),
-                        rgba(dark ? 0x36BDF5 : 0x20B11A, 255), rgba(dark ? 0x36BDF5 : 0x20B11A, 0)}));
-        g.fill(fade);
-        g.setPaint(new GradientPaint(0, r.y, rgba(0xFFFFFF, 150), 0, r.y + r.height / 2f, rgba(0xFFFFFF, 0)));
-        g.fill(fade);
+        RoundRectangle2D b = new RoundRectangle2D.Double(x, r.y, block, r.height, r.height, r.height);
+        int a = dark ? ACCENT_DARK : ACCENT_LIGHT;
+        g.setPaint(new LinearGradientPaint((float) x, 0, (float) x + block, 0, new float[]{0f, .3f, .7f, 1f},
+                new Color[]{rgba(a, 60), rgba(a, 255), rgba(a, 255), rgba(a, 60)}));
+        g.fill(b);
+        g.setPaint(new GradientPaint(0, r.y, rgba(0xFFFFFF, 90), 0, r.y + r.height / 2f, rgba(0xFFFFFF, 0)));
+        g.fill(b);
         g.setClip(old);
     }
 
     private static RoundRectangle2D track(Graphics2D g, Rectangle r, boolean dark) {
-        RoundRectangle2D track = new RoundRectangle2D.Double(r.x, r.y, r.width, r.height, dark ? r.height : 3, dark ? r.height : 3);
-        if (dark) {
-            g.setPaint(new GradientPaint(0, r.y, rgb(0x050608), 0, r.y + r.height, rgb(0x1D2026)));
-            g.fill(track);
-            g.setColor(Color.BLACK);
-        } else {
-            g.setPaint(new GradientPaint(0, r.y, rgb(0xF3F3F3), 0, r.y + r.height, rgb(0xDCDCDC)));
-            g.fill(track);
-            g.setColor(rgb(0xB2B2B2));
-        }
-        g.draw(track);
+        RoundRectangle2D track = pill(r);
+        g.setColor(dark ? rgba(0xFFFFFF, 26) : rgba(0x000000, 18));
+        g.fill(track);
         return track;
     }
 
-    private static void paintFill(Graphics2D g, Rectangle filled, boolean dark) {
-        if (dark) fill(g, filled, rgb(0xA9ECFF), rgb(0x36BDF5), rgb(0x0D7CC4), rgb(0x2FA6E6));
-        else fill(g, filled, rgb(0xCBF5C5), rgb(0x61D256), rgb(0x20B11A), rgb(0x4DD43F));
-    }
-
-    /** On/off switch: glass track, white pearl knob. */
+    /** On/off switch: accent track when on, white knob with a soft shadow. */
     static void toggle(Graphics2D g, Rectangle r, boolean on, boolean dark) {
-        RoundRectangle2D t = new RoundRectangle2D.Double(r.x + .5, r.y + .5, r.width - 1, r.height - 1, r.height, r.height);
-        if (on) {
-            if (dark) {
-                g.setColor(rgba(0x2BB5FF, 80));
-                g.fill(new RoundRectangle2D.Double(r.x - 1.5, r.y - 1.5, r.width + 3, r.height + 3, r.height + 3, r.height + 3));
-            }
-            fill(g, t, rgb(0x8FE3FF), rgb(0x2AA7E8), rgb(0x0A6FB8), rgb(0x1C8FD6));
-        } else if (dark) {
-            fill(g, t, rgb(0x2F333A), rgb(0x23262B), rgb(0x16181B), rgb(0x1C1F23));
-        } else {
-            fill(g, t, rgb(0xF2F2F2), rgb(0xEBEBEB), rgb(0xDDDDDD), rgb(0xCFCFCF));
-        }
-        g.setColor(dark ? Color.BLACK : on ? rgb(0x2C628B) : rgb(0x8A8A8A));
-        g.draw(t);
+        RoundRectangle2D t = pill(r);
+        g.setColor(on ? accent(dark) : dark ? rgba(0xFFFFFF, 46) : rgba(0x000000, 30));
+        g.fill(t);
+        if (on) sheen(g, t, 40, 110, 15);
         double k = r.height - 4;
         double kx = on ? r.x + r.width - k - 2 : r.x + 2;
-        Ellipse2D knob = new Ellipse2D.Double(kx, r.y + 2, k, k);
-        g.setPaint(new RadialGradientPaint((float) (kx + k * .4), (float) (r.y + 2 + k * .3), (float) k,
-                new float[]{0f, 1f}, new Color[]{Color.WHITE, rgb(0xC9D3DC)}));
-        g.fill(knob);
-        g.setColor(rgba(0x000000, 90));
-        g.draw(knob);
+        g.setColor(rgba(0x000000, 50));
+        g.fill(new Ellipse2D.Double(kx, r.y + 2.8, k, k));
+        g.setColor(Color.WHITE);
+        g.fill(new Ellipse2D.Double(kx, r.y + 2, k, k));
     }
 
-    /** Text field background: dark inset pill or Vista's white box. */
+    /** Text field background: a pill of clear glass, with the accent focus ring. */
     static void field(Graphics2D g, Rectangle r, boolean dark, boolean focused) {
+        RoundRectangle2D s = new RoundRectangle2D.Double(r.x + 1, r.y + 1, r.width - 2, r.height - 2, r.height - 2, r.height - 2);
+        g.setColor(dark ? rgba(0xFFFFFF, 18) : Color.WHITE);
+        g.fill(s);
         if (dark) {
-            RoundRectangle2D s = new RoundRectangle2D.Double(r.x + .5, r.y + .5, r.width - 1, r.height - 1, r.height, r.height);
-            g.setPaint(new GradientPaint(0, r.y, rgb(0x050608), 0, r.y + r.height, rgb(0x1A1D22)));
-            g.fill(s);
-            g.setColor(focused ? rgb(0x2C9BE0) : Color.BLACK);
-            g.draw(s);
-            g.setColor(rgba(0xFFFFFF, 26));
-            g.drawLine(r.x + r.height / 2, r.y + r.height - 1, r.x + r.width - r.height / 2, r.y + r.height - 1);
+            sheen(g, s, 0, 40, 10);
         } else {
-            RoundRectangle2D s = new RoundRectangle2D.Double(r.x + .5, r.y + .5, r.width - 1, r.height - 1, 4, 4);
-            g.setColor(Color.WHITE);
-            g.fill(s);
-            g.setColor(focused ? rgb(0x3C7FB1) : rgb(0xA4BED4));
-            g.draw(s);
+            g.setColor(rgba(0x000000, 30));
+            g.draw(new RoundRectangle2D.Double(r.x + 1.5, r.y + 1.5, r.width - 3, r.height - 3, r.height - 3, r.height - 3));
         }
+        if (focused) {
+            Stroke old = g.getStroke();
+            g.setStroke(new BasicStroke(2f));
+            g.setColor(rgba(dark ? ACCENT_DARK : ACCENT_LIGHT, 170));
+            g.draw(new RoundRectangle2D.Double(r.x + 1, r.y + 1, r.width - 2, r.height - 2, r.height - 2, r.height - 2));
+            g.setStroke(old);
+        }
+    }
+
+    /** Scrollbar thumb: a thin translucent capsule. */
+    static void thumb(Graphics2D g, Rectangle r, boolean dark) {
+        double w = Math.min(6, r.width - 4);
+        g.setColor(dark ? rgba(0xFFFFFF, 70) : rgba(0x000000, 60));
+        g.fill(new RoundRectangle2D.Double(r.x + (r.width - w) / 2, r.y + 2, w, r.height - 4, w, w));
     }
 
     static Color rgb(int rgb) {

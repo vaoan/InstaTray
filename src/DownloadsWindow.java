@@ -91,7 +91,7 @@ final class DownloadsWindow {
         }).start();
         Theme.addListener(this::applyTheme);
 
-        // progress bars shimmer like Vista's: repaint only the downloading rows; reload() runs it only while one shows
+        // progress bars shimmer: repaint only the downloading rows; reload() runs it only while one shows
         animation = new Timer(40, e -> {
             if (!frame.isVisible()) {
                 animation.stop();
@@ -645,7 +645,7 @@ final class DownloadsWindow {
             Glass.row(g, w, h, Theme.isDark(), selected);
             if (!selected) {
                 g.setColor(p.separator());
-                g.fillRect(14, h - 1, w - 14, 1);
+                g.fillRect(14 + 28 + 12, h - 1, w - 14 - 28 - 12 - 14, 1); // inset under the text, like macOS lists
             }
 
             g.drawImage(orb(job.link.site()), 14, (h - 28) / 2, 28, 28, null);
@@ -680,7 +680,7 @@ final class DownloadsWindow {
                 boolean hover = hoverRow == index && hoverButton == 2;
                 if (hover) {
                     g.setColor(p.button());
-                    g.fill(new RoundRectangle2D.Double(b[2].x, b[2].y, b[2].width, b[2].height, 8, 8));
+                    g.fill(new RoundRectangle2D.Double(b[2].x, b[2].y, b[2].width, b[2].height, b[2].height, b[2].height));
                 }
                 Glyph.TRASH.paint(g, b[2].x + (b[2].width - 12) / 2.0, b[2].y + (b[2].height - 12) / 2.0,
                         hover ? p.bad() : p.secondary());
@@ -716,13 +716,8 @@ final class DownloadsWindow {
         String text = ellipsize(label, fm, r.width - 16 - iconW);
         int total = iconW + fm.stringWidth(text);
         int x = r.x + (r.width - total) / 2;
-        int y = r.y + (r.height + fm.getAscent() - fm.getDescent()) / 2;
-        if (primary) { // engraved look of glass buttons
-            if (glyph != null) glyph.paint(g, x, r.y + (r.height - 12) / 2.0 + 1, new Color(0, 0, 0, 90));
-            g.setColor(new Color(0, 0, 0, 90));
-            g.drawString(text, x + iconW, y + 1);
-        }
-        if (glyph != null) glyph.paint(g, x, r.y + (r.height - 12) / 2.0, ink);
+        int y = r.y + (r.height - 2 + fm.getAscent() - fm.getDescent()) / 2; // the pill sits 2px above its shadow
+        if (glyph != null) glyph.paint(g, x, r.y + (r.height - 14) / 2.0, ink);
         g.setColor(ink);
         g.drawString(text, x + iconW, y);
     }
@@ -893,7 +888,7 @@ final class DownloadsWindow {
             Graphics2D g = (Graphics2D) g0.create();
             boolean dark = Theme.isDark();
             switch (kind) {
-                case TOOLBAR -> Glass.chrome(g, getWidth(), getHeight(), dark, true);
+                case TOOLBAR -> Glass.chrome(g, getWidth(), getHeight(), dark);
                 case BAND -> Glass.band(g, getWidth(), getHeight(), dark);
                 case FOOTER -> Glass.footer(g, getWidth(), getHeight(), dark);
             }
@@ -930,11 +925,7 @@ final class DownloadsWindow {
             if (r.isEmpty()) return;
             Graphics2D g = (Graphics2D) g0.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Shape thumb = new RoundRectangle2D.Double(r.x + 2, r.y + 2, r.width - 4, r.height - 4, r.width - 4, r.width - 4);
-            if (Theme.isDark()) Glass.fill(g, thumb, Glass.rgb(0x5A616B), Glass.rgb(0x3A3F48), Glass.rgb(0x22252B), Glass.rgb(0x2E333A));
-            else Glass.fill(g, thumb, Glass.rgb(0xEEF5FC), Glass.rgb(0xD6E6F5), Glass.rgb(0xBCD3EA), Glass.rgb(0xCADDF0));
-            g.setColor(Theme.isDark() ? Color.BLACK : Glass.rgb(0x8DB2E3));
-            g.draw(thumb);
+            Glass.thumb(g, r, Theme.isDark());
             g.dispose();
         }
     }

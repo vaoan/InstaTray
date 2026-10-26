@@ -6,22 +6,22 @@ import java.io.File;
 import javax.imageio.ImageIO;
 
 /**
- * Draws glossy "Aero" style spheres (Windows Vista look) for the tray and the .app icon.
- * Idle: aqua glass orb with a white download arrow (the project's own icon).
- * Busy: the orb takes the color of the site being downloaded and shows the pending count.
+ * Draws Liquid Glass tiles (macOS 26 look: continuous-corner squircle, soft light, specular rim) for the tray and the
+ * .app icon. Idle: aqua tile with a white download arrow (the project's own icon).
+ * Busy: the tile takes the color of the site being downloaded and shows the percent or the pending count.
  */
 public final class AeroIcon {
 
-    /** Base colors of the orb, painted as a diagonal gradient (bottom-left -> top-right). */
+    /** Base colors of the tile, painted as a diagonal gradient (bottom-left -> top-right). */
     public enum Palette {
         IDLE(0x9EF0FF, 0x38B6F0, 0x1279CF, 0x0A4596),
         // Weighted toward the yellow/orange and violet/blue ends so it never reads as plain red at 22pt
         INSTAGRAM(0xFFE27A, 0xFFB238, 0xF56A2C, 0xC1358A, 0x7B3BD0, 0x4C5FE8, 0x3A4FD9),
-        // Single flat red: clearly different from the multicolor Instagram orb
+        // Single flat red: clearly different from the multicolor Instagram tile
         YOUTUBE(0xFF3B30, 0xEE1C12, 0xD40D06, 0xB00000),
         X(0xB8C0C8, 0x5C646E, 0x2A2F35, 0x08090B),
         TWITCH(0xD9C2FF, 0xA970FF, 0x7B3FE4, 0x3E1A8C),
-        // Dark orb with a cyan edge bottom-left and a pink edge top-right
+        // Dark tile with a cyan edge bottom-left and a pink edge top-right
         TIKTOK(0x25F4EE, 0x1B2A30, 0x0B0B0E, 0x2A1018, 0xFE2C55),
         REDDIT(0xFFC29A, 0xFF8A45, 0xFF4500, 0xB23000),
         FACEBOOK(0x9CC2FF, 0x4A8CF7, 0x1877F2, 0x0A47A3),
@@ -75,7 +75,7 @@ public final class AeroIcon {
     }
 
     /**
-     * @param progress 0..1 fills the orb with saturated color from the bottom up over a washed-out
+     * @param progress 0..1 fills the tile with saturated color from the bottom up over a washed-out
      *                 version of the same palette; negative means no progress (fully saturated)
      */
     public static BufferedImage render(int size, Palette palette, String badge, float progress) {
@@ -89,30 +89,30 @@ public final class AeroIcon {
 
         float s = size;
         boolean small = size < 64;
-        float pad = small ? s * 0.04f : s * 0.08f;
+        float pad = small ? s * 0.05f : s * 0.09f;
         float d = s - pad * 2;
         float x = pad, y = small ? pad : pad * 0.8f;
-        Ellipse2D sphere = new Ellipse2D.Float(x, y, d, d);
+        Shape tile = squircle(x, y, d);
 
         if (!small) drawDropShadow(g, s, y, d);
 
-        // Base gradient
+        // Body: the palette as a diagonal gradient (bottom-left -> top-right)
         Color[] cs = palette.colors;
         float[] stops = new float[cs.length];
         for (int i = 0; i < cs.length; i++) stops[i] = i / (float) (cs.length - 1);
         Point2D from = new Point2D.Float(x, y + d), to = new Point2D.Float(x + d, y);
         if (progress < 0) {
             g.setPaint(new LinearGradientPaint(from, to, stops, cs));
-            g.fill(sphere);
+            g.fill(tile);
         } else {
             float p = Math.min(1f, progress);
             Color[] washed = new Color[cs.length];
             for (int i = 0; i < cs.length; i++) washed[i] = washOut(cs[i]);
             g.setPaint(new LinearGradientPaint(from, to, stops, washed));
-            g.fill(sphere);
+            g.fill(tile);
 
             float level = y + d * (1 - p);
-            Area liquid = new Area(sphere);
+            Area liquid = new Area(tile);
             liquid.intersect(new Area(new Rectangle2D.Float(x, level, d, d * p + 1)));
             g.setPaint(new LinearGradientPaint(from, to, stops, cs));
             g.fill(liquid);
@@ -120,67 +120,57 @@ public final class AeroIcon {
             // Bright meniscus line at the fill level
             if (p > 0.01f && p < 0.99f) {
                 Graphics2D gl = (Graphics2D) g.create();
-                gl.setClip(sphere);
+                gl.setClip(tile);
                 gl.setStroke(new BasicStroke(Math.max(1f, d * 0.03f)));
-                gl.setColor(new Color(255, 255, 255, 200));
+                gl.setColor(new Color(255, 255, 255, 210));
                 gl.draw(new Line2D.Float(x, level, x + d, level));
                 gl.dispose();
             }
         }
 
-        // 3D shading: dark rim toward the edges
-        g.setPaint(new RadialGradientPaint(
-                new Point2D.Float(x + d * 0.5f, y + d * 0.42f), d * 0.62f,
-                new float[]{0f, 0.70f, 1f},
-                new Color[]{new Color(0, 0, 0, 0), new Color(0, 0, 0, 25), new Color(10, 10, 40, 140)}));
-        g.fill(sphere);
-
-        // Inner glow from the bottom (light passing through the glass)
-        g.setClip(sphere);
-        g.setPaint(new RadialGradientPaint(
-                new Point2D.Float(x + d * 0.5f, y + d * 1.02f), d * 0.55f,
-                new float[]{0f, 1f},
-                new Color[]{new Color(255, 255, 255, 150), new Color(255, 255, 255, 0)}));
-        g.fill(sphere);
+        // Liquid Glass light: a soft wash from the top-left, a little depth at the bottom
+        g.setClip(tile);
+        g.setPaint(new RadialGradientPaint(new Point2D.Float(x + d * 0.25f, y), d * 0.95f,
+                new float[]{0f, 1f}, new Color[]{new Color(255, 255, 255, 95), new Color(255, 255, 255, 0)}));
+        g.fill(tile);
+        g.setPaint(new GradientPaint(0, y + d * 0.55f, new Color(0, 0, 0, 0), 0, y + d, new Color(0, 0, 30, 60)));
+        g.fill(tile);
         g.setClip(null);
 
-        // Idle glyph sits inside the glass, under the reflection
         if (badge == null) drawArrow(g, x, y, d, small);
 
-        // Top glossy highlight (classic Aero "lens" reflection)
-        float hw = d * 0.74f, hh = d * 0.50f;
-        Ellipse2D gloss = new Ellipse2D.Float(x + (d - hw) / 2, y + d * 0.04f, hw, hh);
-        int glossTop = badge == null ? 235 : 200;
-        g.setPaint(new GradientPaint(
-                0, (float) gloss.getY(), new Color(255, 255, 255, glossTop),
-                0, (float) (gloss.getY() + hh), new Color(255, 255, 255, 14)));
-        g.fill(gloss);
+        // Specular rim: bright along the top-left edge, fading to a faint line bottom-right
+        float rimW = Math.max(1f, d * (small ? 0.045f : 0.022f));
+        float in = rimW / 2;
+        g.setStroke(new BasicStroke(rimW));
+        g.setPaint(new LinearGradientPaint(new Point2D.Float(x, y), new Point2D.Float(x + d, y + d),
+                new float[]{0f, 0.45f, 1f}, new Color[]{new Color(255, 255, 255, 235),
+                new Color(255, 255, 255, 50), new Color(255, 255, 255, 120)}));
+        g.draw(squircle(x + in, y + in, d - in * 2));
 
-        // Small specular sparkle
-        if (!small) {
-            float sp = d * 0.10f;
-            Point2D sc = new Point2D.Float(x + d * 0.30f, y + d * 0.20f);
-            g.setPaint(new RadialGradientPaint(sc, sp,
-                    new float[]{0f, 1f},
-                    new Color[]{new Color(255, 255, 255, 255), new Color(255, 255, 255, 0)}));
-            g.fill(new Ellipse2D.Double(sc.getX() - sp, sc.getY() - sp, sp * 2, sp * 2));
-        }
-
-        // Thin glass rim
-        g.setStroke(new BasicStroke(Math.max(1f, d * 0.012f)));
-        g.setPaint(new GradientPaint(0, y, new Color(255, 255, 255, 170),
-                0, y + d, new Color(255, 255, 255, 40)));
-        float inset = Math.max(0.5f, d * 0.006f);
-        g.draw(new Ellipse2D.Float(x + inset, y + inset, d - inset * 2, d - inset * 2));
-
-        // Count goes on top of the reflection so it stays readable in the menu bar
+        // Count goes on top so it stays readable in the menu bar
         if (badge != null) drawBadge(g, badge, x, y, d);
 
         g.dispose();
         return img;
     }
 
-    /** Desaturated, lighter version of a color for the "empty" part of the orb. */
+    /** Apple-style continuous-corner tile: a superellipse |x|^5 + |y|^5 = 1. */
+    static Shape squircle(float x, float y, float d) {
+        Path2D p = new Path2D.Float();
+        double r = d / 2.0, cx = x + r, cy = y + r, n = 5;
+        for (int i = 0; i <= 160; i++) {
+            double t = 2 * Math.PI * i / 160, c = Math.cos(t), sn = Math.sin(t);
+            double px = cx + r * Math.signum(c) * Math.pow(Math.abs(c), 2 / n);
+            double py = cy + r * Math.signum(sn) * Math.pow(Math.abs(sn), 2 / n);
+            if (i == 0) p.moveTo(px, py);
+            else p.lineTo(px, py);
+        }
+        p.closePath();
+        return p;
+    }
+
+    /** Desaturated, lighter version of a color for the "empty" part of the tile. */
     private static Color washOut(Color c) {
         float[] hsb = Color.RGBtoHSB(c.getRed(), c.getGreen(), c.getBlue(), null);
         return Color.getHSBColor(hsb[0], hsb[1] * 0.22f, Math.min(1f, hsb[2] * 0.55f + 0.30f));
@@ -231,9 +221,8 @@ public final class AeroIcon {
         g.fill(glyph);
     }
 
-    /** Bold white number with a dark outline, centered in the orb. */
     /**
-     * Bold white number with a dark outline, centered in the orb. A trailing "%" (download progress) is drawn as a
+     * Bold white number with a soft shadow and thin outline, centered in the tile. A trailing "%" (download progress) is drawn as a
      * small superscript next to the number, so the digits keep their full size and the queue count ("3") never
      * looks like a percentage ("45%").
      */
@@ -264,8 +253,14 @@ public final class AeroIcon {
             shape.add(new Area(pv.getOutline(px, py)));
         }
 
-        g.setStroke(new BasicStroke(Math.max(1.5f, d * 0.08f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.setColor(new Color(0, 0, 0, 150));
+        // soft drop shadow plus a thin outline: enough contrast on the washed-out part at 22pt
+        Graphics2D gs = (Graphics2D) g.create();
+        gs.translate(0, d * 0.025f);
+        gs.setColor(new Color(0, 0, 30, 90));
+        gs.fill(shape);
+        gs.dispose();
+        g.setStroke(new BasicStroke(Math.max(1f, d * 0.04f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(0, 0, 30, 110));
         g.draw(shape);
         g.setColor(Color.WHITE);
         g.fill(shape);

@@ -168,7 +168,7 @@ final class SettingsDialog {
         if (c instanceof JLabel l) {
             Object role = l.getClientProperty("role");
             l.setForeground("help".equals(role) ? p.secondary()
-                    : "header".equals(role) ? (Theme.isDark() ? new Color(0x5CC8FF) : new Color(0x1E5799)) : p.text());
+                    : "header".equals(role) ? p.secondary() : p.text());
         }
         if (c instanceof JCheckBox b) b.setForeground(p.text());
         if (c instanceof Container k) for (Component child : k.getComponents()) paint(child, p);

@@ -26,12 +26,13 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
 - `src/WindowHost.java` — what the windows need from the app; `DownloadsWindow.PreviewHost` is the stub for previews.
 - `src/Theme.java` — light/dark palettes; appearance read at startup and every 3 s only while the window is visible.
-- `src/Glass.java` — the 2000s skin (user asked for it): dark = WMP11 glossy black + cyan glow, light = Vista glass.
-  Every surface is two gradients split at half height. Progress shimmer / indeterminate sweep math (tested).
+- `src/Glass.java` — the Liquid Glass skin (macOS 26 style; user asked for "ultra modern", replacing the earlier
+  WMP11/Vista skin): frosted bars, pill controls, system accent blue (`ACCENT_LIGHT/DARK`), `sheen()` = soft top light
+  + specular rim. Progress shimmer / indeterminate sweep math (tested).
   The 40 ms animation timer runs only while a download row is shown; the list repaints only when a row changes
   (idle window ≈ 0.7 % CPU — keep it that way).
 - `test.sh` + `test/*Test.java` — plain `main` tests (no JUnit), headless. Run `./test.sh` before committing.
-- `src/AeroIcon.java` — procedural icons; one `Palette` per `Site` with the same enum name (`Site.palette()`).
+- `src/AeroIcon.java` — procedural Liquid Glass squircle icons (name kept from the old orbs); one `Palette` per `Site` with the same enum name (`Site.palette()`).
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is
   missing (log: `setup.log`), then starts java detached. No Homebrew → dialog + `setup.command` in Terminal (official
   installer needs the admin password). Test hooks: `INSTATRAY_FORCE_INSTALL="deno"`, `INSTATRAY_FAKE_NO_BREW=1`.
@@ -111,8 +112,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   progress template; back to "sin descargas" when idle.
 - Tray badge: **1 pending → download percent with a small superscript "%"** (badge text "45%"; `drawBadge` keeps the
   digits full size); **≥2 pending → pending count, no "%"** (`9+` cap). The "%" is what tells the two apart. The fill level always shows the
-  current download's progress (washed-out orb filling with saturated color bottom→top, meniscus line).
-- Every icon variant must be a glossy Vista/Aero glass orb. Idle = aqua orb + white download arrow (also the .app
+  current download's progress (washed-out tile filling with saturated color bottom→top, meniscus line).
+- Every icon variant is a Liquid Glass squircle tile (superellipse, top-left light, specular rim). Idle = aqua tile +
+  white download arrow (also the .app
   icon). Busy = active site's palette. Instagram (multicolor, yellow-orange bottom → violet-blue top) and YouTube
   (flat single-tone red) must stay clearly distinct at 22pt. Site colors only, never logos.
 

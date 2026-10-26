@@ -20,10 +20,11 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 
 ## Ícono
 
-Todos los íconos son esferas de vidrio estilo Aero (Windows Vista), dibujadas por código en
+Todos los íconos son baldosas de vidrio estilo **Liquid Glass** (macOS 26): esquinas continuas, luz suave y un
+borde brillante, dibujadas por código en
 `src/AeroIcon.java`, sin imágenes externas. Vista previa de los estados: `icon-states.png`.
 
-| Estado | Esfera |
+| Estado | Ícono |
 |---|---|
 | Sin descargas | **Aqua** con flecha de descarga blanca. Es el ícono del proyecto, y también el de la `.app` y las ventanas |
 | Bajando de Instagram | **Multicolor**: amarillo-naranja abajo, morado-azul arriba |
@@ -33,7 +34,7 @@ Todos los íconos son esferas de vidrio estilo Aero (Windows Vista), dibujadas p
 | Cualquier otro sitio | **Bronce** |
 | Los otros 26 sitios | Un color propio cada uno. Todos están en `icon-palettes.png`. Algunos se parecen (Facebook, Streamable y LinkedIn son azules); al pasar el mouse se ve el sitio |
 
-- **Relleno:** mientras baja, la esfera está deslavada y se va **llenando de color saturado de abajo hacia arriba** según el porcentaje, con una línea brillante en el nivel.
+- **Relleno:** mientras baja, el ícono está deslavado y se va **llenando de color saturado de abajo hacia arriba** según el porcentaje, con una línea brillante en el nivel.
 - **Número del centro:**
   - con **una** descarga, es su **porcentaje**, con un `%` pequeño arriba a la derecha (`45%`);
   - con **varias**, es **cuántas hay pendientes**, sin `%` (`3`, o `9+` si son más de 9).
@@ -155,10 +156,10 @@ eso falla abre el instalador clásico en Terminal.
 ## La ventana
 
 Una sola ventana con todo: arriba el campo para pegar enlaces y el botón **Ajustes**; en el medio, una fila por
-descarga; abajo, una línea con el estado y las acciones. Tiene piel de los 2000: con macOS en **modo oscuro** es
-la de **Windows Media Player 11** (cromo negro brillante, botones de cristal y luz cian) y en **modo claro** la del
-**cristal de Vista** (barras celestes, botones satinados, barra de progreso verde). Cambia sola si cambias de modo
-con la ventana abierta. Las barras de progreso tienen el destello que recorre la barra, como en Vista, y mientras
+descarga; abajo, una línea con el estado y las acciones. Tiene estilo **Liquid Glass** de macOS 26: barras
+esmeriladas, botones y filtros en forma de píldora con un borde de luz, el azul de acento del sistema y filas con
+selección redondeada. Sigue el **modo claro u oscuro** de macOS y cambia sola si cambias de modo con la ventana
+abierta. Las barras de progreso son finas, en degradado celeste→azul, con un destello suave que las recorre, y mientras
 todavía no se sabe el avance («preparando…») un bloque de brillo va y viene. La animación solo corre con la ventana
 abierta y una descarga en curso.
 
@@ -265,7 +266,7 @@ InstaTray/
 │   ├── DownloadsWindow.java # la ventana (java DownloadsWindow --preview <carpeta>)
 │   ├── SettingsDialog.java  # Ajustes (java SettingsDialog --preview <carpeta>)
 │   ├── Theme.java         # colores claro/oscuro según macOS
-│   ├── Glass.java         # piel WMP11 / Vista: degradados de cristal y animación de las barras
+│   ├── Glass.java         # piel Liquid Glass: superficies, píldoras y animación de las barras
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
 │   ├── launcher.sh        # lanzador del .app: instala lo que falte y arranca Java
 │   └── setup.command      # instalador de Homebrew + requisitos (se abre en Terminal)
