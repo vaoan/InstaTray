@@ -403,6 +403,8 @@ public final class InstaTray implements WindowHost {
     private SettingsDialog settingsDialog;
 
     private TrayIcon trayIcon;
+    /** The native menu-bar item (narrower than TrayIcon); null when the helper is missing or died: then trayIcon shows. */
+    private volatile NativeBar bar;
     private MenuItem statusItem;
     private MenuItem cookiesItem;
     private CheckboxMenuItem watchItem;
@@ -560,14 +562,59 @@ public final class InstaTray implements WindowHost {
         });
         menu.add(quit);
 
-        BufferedImage icon = AeroIcon.render(44); // 22pt @2x for Retina menu bar
+        BufferedImage icon = AeroIcon.render(AeroIcon.TRAY_PX);
         trayIcon = new TrayIcon(icon, "InstaTray", menu);
         trayIcon.setImageAutoSize(true);
+
+        NativeBar nb = NativeBar.start(helperPath(), menu, () -> EventQueue.invokeLater(this::fallBackToAwtTray));
+        if (nb == null) {
+            addAwtTray();
+            return;
+        }
+        bar = nb;
+        log("Menu-bar item: native helper");
+        nb.setIcon(AeroIcon.render(AeroIcon.TRAY_PX));
+        nb.setTooltip("InstaTray");
+        nb.syncMenu();
+        // the AWT menu stays the model; labels and check marks change in many places, so mirror it on a timer
+        new javax.swing.Timer(500, e -> {
+            NativeBar b = bar;
+            if (b != null) b.syncMenu();
+        }).start();
+    }
+
+    private void addAwtTray() {
         try {
             SystemTray.getSystemTray().add(trayIcon);
         } catch (AWTException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /** The helper died: show the plain Java icon instead (on the EDT). */
+    private void fallBackToAwtTray() {
+        if (bar == null) return;
+        bar = null;
+        log("Native menu-bar helper exited; using the Java tray icon");
+        lastIconKey = null;
+        addAwtTray();
+        updateTrayIcon();
+    }
+
+    /** Contents/Resources/InstaTrayBar, next to the jar; null when running from classes (tests, previews). */
+    private static Path helperPath() {
+        try {
+            Path jar = Paths.get(InstaTray.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            return Files.isRegularFile(jar) ? jar.getParent().resolve("InstaTrayBar") : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void setTrayTooltip(String tip) {
+        NativeBar b = bar;
+        if (b != null) b.setTooltip(tip);
+        else trayIcon.setToolTip(tip);
     }
 
     private void listenForOtherInstances(ServerSocket server) {
@@ -825,16 +872,21 @@ public final class InstaTray implements WindowHost {
                 : pending > 9 ? "9+" : String.valueOf(pending);
         int step = pct < 0 ? -1 : pct / 5 * 5; // 5% steps keep the icon cache small (fill level)
         String key = palette + ":" + badge + ":" + step;
-        BufferedImage img = iconCache.computeIfAbsent(key,
-                k -> AeroIcon.render(44, palette, badge, step < 0 ? -1f : step / 100f));
+        NativeBar b = bar;
+        float level = step < 0 ? -1f : step / 100f;
+        BufferedImage img = iconCache.computeIfAbsent(key, k -> AeroIcon.render(AeroIcon.TRAY_PX, palette, badge, level));
         if (!key.equals(lastIconKey)) log("Tray icon -> " + key);
         lastIconKey = key;
         String tip = tooltip(pending);
         lastTooltip = tip;
         lastTooltipAt = System.currentTimeMillis();
         EventQueue.invokeLater(() -> {
-            trayIcon.setImage(img);
-            trayIcon.setToolTip(tip);
+            if (b != null) {
+                b.setIcon(img);
+            } else {
+                trayIcon.setImage(img);
+            }
+            setTrayTooltip(tip);
         });
     }
 
@@ -863,7 +915,7 @@ public final class InstaTray implements WindowHost {
         if (tip.equals(lastTooltip)) return;
         lastTooltip = tip;
         lastTooltipAt = now;
-        EventQueue.invokeLater(() -> trayIcon.setToolTip(tip));
+        EventQueue.invokeLater(() -> setTrayTooltip(tip));
     }
 
     private static String shorten(String s, int max) {

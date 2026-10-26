@@ -62,6 +62,9 @@ public final class AeroIcon {
 
     private AeroIcon() {}
 
+    /** Menu-bar icon: 22pt at 2x for Retina. */
+    static final int TRAY_PX = 44;
+
     /** The project icon (idle state). */
     public static BufferedImage render(int size) {
         return render(size, Palette.IDLE, null);
@@ -291,7 +294,7 @@ public final class AeroIcon {
     /** Every site color at menu-bar size and large, with its name, to check they are told apart. */
     private static void writePalettes(File out) throws Exception {
         Palette[] all = Palette.values();
-        int cols = 7, cell = 150, tiny = 44;
+        int cols = 7, cell = 150;
         int rows = (all.length + cols - 1) / cols;
         BufferedImage sheet = new BufferedImage(cols * cell, rows * (cell + 30), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = sheet.createGraphics();
@@ -303,8 +306,8 @@ public final class AeroIcon {
             int x = (i % cols) * cell, y = (i / cols) * (cell + 30);
             g.drawImage(render(96, all[i], all[i] == Palette.IDLE ? null : "45%", 0.45f), x + 8, y + 8, null);
             g.setColor(new Color(0x2B2B2B));
-            g.fillRoundRect(x + 104, y + 30, tiny + 8, tiny + 8, 8, 8);
-            g.drawImage(render(tiny, all[i], all[i] == Palette.IDLE ? null : "3", -1f), x + 108, y + 34, null);
+            g.fillRoundRect(x + 104, y + 30, TRAY_PX + 8, TRAY_PX + 8, 8, 8);
+            g.drawImage(render(TRAY_PX, all[i], all[i] == Palette.IDLE ? null : "3", -1f), x + 108, y + 34, null);
             g.setColor(Color.DARK_GRAY);
             g.drawString(all[i].name(), x + 10, y + cell + 12);
         }
@@ -318,7 +321,7 @@ public final class AeroIcon {
                 {Palette.IDLE, null, -1f}, {Palette.INSTAGRAM, "7%", 0.07f}, {Palette.YOUTUBE, "45%", 0.45f},
                 {Palette.YOUTUBE, "3", 0.45f}, {Palette.X, "99%", 0.99f}, {Palette.TWITCH, "9+", 0.6f},
         };
-        int big = 200, tiny = 44, gap = 30;
+        int big = 200, tiny = TRAY_PX, gap = 30;
         int w = states.length * (big + gap) + gap, h = big + tiny + gap * 3 + 22;
         BufferedImage sheet = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = sheet.createGraphics();

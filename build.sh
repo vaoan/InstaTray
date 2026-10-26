@@ -23,6 +23,13 @@ cp build/InstaTray.iconset/icon_512x512@2x.png icon.png
 APP=InstaTray.app/Contents
 mkdir -p "$APP/MacOS" "$APP/Resources"
 cp build/InstaTray.jar "$APP/Resources/"
+
+# Native menu-bar item (narrower than Java's TrayIcon); without swiftc the app falls back to TrayIcon
+if command -v swiftc >/dev/null; then
+  swiftc -O src/InstaTrayBar.swift -o "$APP/Resources/InstaTrayBar"
+else
+  echo "swiftc not found: InstaTrayBar not built (Java tray icon will be used)"
+fi
 cp build/InstaTray.icns "$APP/Resources/"
 
 # Launcher checks/installs the requirements (Homebrew, Java, yt-dlp, ffmpeg, deno) and starts Java detached

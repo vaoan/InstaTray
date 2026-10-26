@@ -35,6 +35,12 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (idle window ≈ 0.7 % CPU — keep it that way).
 - `test.sh` + `test/*Test.java` — plain `main` tests (no JUnit), headless. Run `./test.sh` before committing.
 - `src/AeroIcon.java` — procedural Liquid Glass squircle icons (name kept from the old orbs); one `Palette` per `Site` with the same enum name (`Site.palette()`).
+- `src/NativeBar.java` + `src/InstaTrayBar.swift` (→ `Contents/Resources/InstaTrayBar`, built by `swiftc` in build.sh):
+  the menu-bar item drawn natively (user wanted the least margin: TrayIcon is 45pt wide = 21pt + Java's fixed 12pt
+  each side; native fixed-length 22pt item = 38pt, the 8pt each side is macOS's own item spacing). Line protocol on
+  stdin (`icon` base64 PNG, `tip`, `menu` snapshot) / stdout (`click <index>`). The AWT PopupMenu stays the model,
+  mirrored by a 500 ms EDT timer; clicks fire the AWT item's listeners. Helper missing or dead → AWT TrayIcon.
+  Icon size unchanged (user: "el icono que se mantenga como estaba").
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is
   missing (log: `setup.log`), then starts java detached. No Homebrew → dialog + `setup.command` in Terminal (official
   installer needs the admin password). Test hooks: `INSTATRAY_FORCE_INSTALL="deno"`, `INSTATRAY_FAKE_NO_BREW=1`.

@@ -24,6 +24,10 @@ Todos los íconos son baldosas de vidrio estilo **Liquid Glass** (macOS 26): esq
 borde brillante, dibujadas por código en
 `src/AeroIcon.java`, sin imágenes externas. Vista previa de los estados: `icon-states.png`.
 
+En la barra de menús el ícono lo dibuja un ayudante nativo pequeño (`InstaTrayBar`, en Swift), no Java: Java le
+pone 12 pt de margen a cada lado (45 pt en total) y el ayudante ocupa solo lo que mide el ícono (22 pt + el espacio
+que macOS deja entre íconos = 38 pt). Si el ayudante falta o se cierra, vuelve el ícono de Java.
+
 | Estado | Ícono |
 |---|---|
 | Sin descargas | **Aqua** con flecha de descarga blanca. Es el ícono del proyecto, y también el de la `.app` y las ventanas |
@@ -275,6 +279,8 @@ InstaTray/
 │   ├── Theme.java         # colores claro/oscuro según macOS
 │   ├── Glass.java         # piel Liquid Glass: superficies, píldoras y animación de las barras
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
+│   ├── NativeBar.java     # maneja el ayudante nativo de la barra de menús
+│   ├── InstaTrayBar.swift # ayudante nativo: el ícono y su menú en la barra (build.sh lo compila con swiftc)
 │   ├── launcher.sh        # lanzador del .app: instala lo que falte y arranca Java
 │   └── setup.command      # instalador de Homebrew + requisitos (se abre en Terminal)
 ├── icon.png               # ícono de la app 1024 px (generado)

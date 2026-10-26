@@ -1,0 +1,81 @@
+// InstaTrayBar: the menu-bar item, drawn natively so it is as narrow as Apple's own (Java's TrayIcon adds a fixed
+// 12pt margin on each side). The Java app starts it and drives it through stdin, one tab-separated command per line:
+//   icon <base64 png>     44×44 px, shown at 22×22 pt (2x)
+//   tip <text>            tooltip
+//   menu <n>              followed by n lines, each "item <tag> <enabled 0|1> <checked -1|0|1> <label>" or "sep"
+// It writes "click <tag>" to stdout when a menu item is chosen, and exits when stdin closes (the app quit or died).
+import AppKit
+
+final class Bar: NSObject {
+    /** Fixed to the icon's width: no padding of its own beyond the spacing macOS keeps between items. */
+    static let size: CGFloat = 22
+    let item = NSStatusBar.system.statusItem(withLength: Bar.size)
+    let menu = NSMenu()
+    private var expected = 0
+    private var incoming: [[String]] = []
+
+    override init() {
+        super.init()
+        menu.autoenablesItems = false
+        item.menu = menu
+        item.button?.imagePosition = .imageOnly
+    }
+
+    func handle(_ line: String) {
+        let parts = line.components(separatedBy: "\t")
+        switch parts[0] {
+        case "icon":
+            guard parts.count > 1, let data = Data(base64Encoded: parts[1]), let image = NSImage(data: data) else { return }
+            image.size = NSSize(width: Bar.size, height: Bar.size)
+            item.button?.image = image
+        case "tip":
+            item.button?.toolTip = parts.count > 1 ? parts[1] : nil
+        case "menu":
+            expected = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+            incoming = []
+            if expected == 0 { apply() }
+        case "item", "sep":
+            guard expected > 0 else { return }
+            incoming.append(parts)
+            if incoming.count == expected { apply() }
+        default:
+            break
+        }
+    }
+
+    /** Same shape as the open menu: update in place (safe while it is showing); otherwise rebuild. */
+    private func apply() {
+        let sameShape = menu.items.count == incoming.count
+            && zip(menu.items, incoming).allSatisfy { $0.isSeparatorItem == ($1[0] == "sep") }
+        if !sameShape {
+            menu.removeAllItems()
+            for p in incoming {
+                menu.addItem(p[0] == "sep" ? .separator() : NSMenuItem(title: "", action: #selector(pick(_:)), keyEquivalent: ""))
+            }
+        }
+        for (mi, p) in zip(menu.items, incoming) where p[0] == "item" && p.count >= 5 {
+            mi.target = self
+            mi.tag = Int(p[1]) ?? -1
+            mi.isEnabled = p[2] == "1"
+            mi.state = p[3] == "1" ? .on : .off
+            mi.title = p[4]
+        }
+        expected = 0
+    }
+
+    @objc func pick(_ sender: NSMenuItem) {
+        print("click\t\(sender.tag)")
+        fflush(stdout)
+    }
+}
+
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+let bar = Bar()
+Thread {
+    while let line = readLine() {
+        DispatchQueue.main.async { bar.handle(line) }
+    }
+    DispatchQueue.main.async { exit(0) }
+}.start()
+app.run()
