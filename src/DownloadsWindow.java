@@ -11,6 +11,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import javax.imageio.ImageIO;
@@ -50,6 +51,7 @@ final class DownloadsWindow {
     private Job shownOutputFor;
     private String shownOutput = "";
     private String footerKey = "";
+    private int ticks;
 
     DownloadsWindow(WindowHost host, Runnable openSettings) {
         this.host = host;
@@ -82,9 +84,11 @@ final class DownloadsWindow {
 
         // Poll while visible: cheap, and avoids wiring listeners through the worker thread
         new Timer(500, e -> {
-            if (frame.isVisible()) reload();
+            if (!frame.isVisible()) return;
+            reload();
+            if (++ticks % 6 == 0) CompletableFuture.runAsync(Theme::refresh); // dark mode switched while open
         }).start();
-        Theme.watch(this::applyTheme);
+        Theme.addListener(this::applyTheme);
     }
 
     JFrame frame() {
@@ -92,6 +96,7 @@ final class DownloadsWindow {
     }
 
     void show(JobView.Filter f) {
+        CompletableFuture.runAsync(Theme::refresh);
         setFilter(f);
         frame.setVisible(true);
         frame.setState(Frame.NORMAL);
@@ -186,7 +191,9 @@ final class DownloadsWindow {
         JPanel footer = panel(new BorderLayout());
         footer.setBorder(new EmptyBorder(8, 14, 9, 14));
         footer.putClientProperty("footer", true);
-        JPanel left = panel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // the left side takes what the actions leave and the folder path shortens with "…" instead of overlapping
+        JPanel left = panel(null);
+        left.setLayout(new BoxLayout(left, BoxLayout.X_AXIS));
         left.setOpaque(false);
         Runnable toggleWatch = () -> {
             host.setWatching(!host.isWatching());
@@ -203,7 +210,10 @@ final class DownloadsWindow {
         left.add(watchLabel);
         left.add(dot);
         left.add(folderLabel);
-        footer.add(left, BorderLayout.WEST);
+        left.add(Box.createHorizontalGlue());
+        dot.setMaximumSize(dot.getPreferredSize());
+        footerRight.setBorder(new EmptyBorder(0, 10, 0, 0));
+        footer.add(left, BorderLayout.CENTER);
         footerRight.setOpaque(false);
         footer.add(footerRight, BorderLayout.EAST);
         return footer;
@@ -260,8 +270,15 @@ final class DownloadsWindow {
         boolean watching = host.isWatching();
         watchSwitch.setOn(watching);
         watchLabel.setText(watching ? "Vigilando portapapeles" : "Portapapeles en pausa");
+        watchLabel.setMinimumSize(null);
+        watchLabel.setMaximumSize(null);
+        watchLabel.setMinimumSize(watchLabel.getPreferredSize()); // never shortened: the folder path gives way
+        watchLabel.setMaximumSize(watchLabel.getPreferredSize());
         watchLabel.setForeground(watching ? Theme.current().text() : Theme.current().secondary());
         folderLabel.setText(host.videosFolderLabel());
+        folderLabel.setMaximumSize(null);
+        folderLabel.setMaximumSize(folderLabel.getPreferredSize());
+        folderLabel.setMinimumSize(new Dimension(0, 0));
         rebuildFooterActions();
         refreshOutput();
     }
@@ -394,7 +411,7 @@ final class DownloadsWindow {
     // ---------------------------------------------------------------- small helpers
 
     private static JPanel panel(LayoutManager layout) {
-        return new JPanel(layout);
+        return layout == null ? new JPanel() : new JPanel(layout);
     }
 
     private static AbstractAction action(Runnable r) {
@@ -511,6 +528,7 @@ final class DownloadsWindow {
                 popup(e);
                 return;
             }
+            if (e.isControlDown()) return; // ctrl-click opened the menu on press: no action on release
             int[] hit = hit(e);
             if (hit == null || hit[1] < 0 || !SwingUtilities.isLeftMouseButton(e)) return;
             Job j = rows.model.get(hit[0]);
@@ -829,6 +847,16 @@ final class DownloadsWindow {
         }
 
         @Override
+        public Dimension getMinimumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
         protected void paintComponent(Graphics g0) {
             Graphics2D g = (Graphics2D) g0.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -940,6 +968,9 @@ final class DownloadsWindow {
                 render(h, true, JobView.Filter.ALL, false, new File(dir, "downloads-dark.png"));
                 render(h, true, JobView.Filter.FAILED, false, new File(dir, "downloads-failed-filter-dark.png"));
                 render(h, true, JobView.Filter.ALL, true, new File(dir, "downloads-details-dark.png"));
+                PreviewHost narrow = new PreviewHost(true);
+                narrow.folder = "/Volumes/Disco externo/Mis videos descargados/<red social>";
+                render(narrow, false, JobView.Filter.FAILED, false, 560, new File(dir, "downloads-narrow-failed-light.png"));
                 PreviewHost empty = new PreviewHost(false);
                 empty.watching = false; // shows the switch off
                 render(empty, false, JobView.Filter.ALL, false, new File(dir, "downloads-empty-light.png"));
@@ -951,12 +982,17 @@ final class DownloadsWindow {
     }
 
     private static void render(PreviewHost h, boolean dark, JobView.Filter f, boolean details, File out) throws Exception {
+        render(h, dark, f, details, 720, out);
+    }
+
+    private static void render(PreviewHost h, boolean dark, JobView.Filter f, boolean details, int width, File out) throws Exception {
         Theme.force(dark);
         h.details = details;
         DownloadsWindow w = new DownloadsWindow(h, () -> {});
         w.setFilter(f);
         if (details) w.rows.list.setSelectedIndex(3);
         JFrame fr = w.frame;
+        fr.setSize(width, fr.getHeight());
         fr.addNotify();
         fr.validate();
         Container cp = fr.getContentPane();
@@ -1025,7 +1061,8 @@ final class DownloadsWindow {
         boolean watching = true;
         @Override public boolean isWatching() { return watching; }
         @Override public void setWatching(boolean on) {}
-        @Override public String videosFolderLabel() { return "Documentos/Videos"; }
+        String folder = "Documentos/Videos";
+        @Override public String videosFolderLabel() { return folder; }
         @Override public void openVideosFolder() {}
         @Override public void revealInFinder(Path file) {}
         @Override public void openUrl(String url) {}

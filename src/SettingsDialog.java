@@ -102,7 +102,7 @@ final class SettingsDialog {
         });
 
         dialog.setContentPane(root);
-        Theme.watch(this::applyTheme);
+        Theme.addListener(this::applyTheme);
     }
 
     /** Re-reads every value, shows the dialog (blocks: it is modal). */

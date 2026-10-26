@@ -2,8 +2,13 @@ import java.awt.Color;
 import java.awt.EventQueue;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-/** Light and dark colours for the hand-painted windows, following the macOS appearance. */
+/**
+ * Light and dark colours for the hand-painted windows, following the macOS appearance. The appearance is read at
+ * startup and, while the window is visible, every few seconds by its poll (never by a thread of its own).
+ */
 final class Theme {
 
     private Theme() {
@@ -25,8 +30,8 @@ final class Theme {
             new Color(0x3A3A3C), new Color(0x4A4A4E), new Color(0xF5F5F7), new Color(0x3A3A3C), new Color(0xF5F5F7),
             new Color(0x1D1D1F), new Color(0x3A3A3C), new Color(0x232323));
 
-    private static volatile boolean dark = readSystemDark();
-    private static Thread watcher;
+    private static volatile boolean dark = false; // set by refresh() off the EDT at startup
+    private static final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     static boolean isDark() {
         return dark;
@@ -36,30 +41,25 @@ final class Theme {
         return dark ? DARK : LIGHT;
     }
 
-    /** For --preview renders: force one appearance. */
+    /** For --preview renders: force one appearance without notifying. */
     static void force(boolean isDark) {
         dark = isDark;
     }
 
-    /** Polls the system appearance every 3 s; onChangeEdt runs on the EDT only when it flips. */
-    static synchronized void watch(Runnable onChangeEdt) {
-        if (watcher != null) return;
-        watcher = new Thread(() -> {
-            while (true) {
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException e) {
-                    return;
-                }
-                boolean now = readSystemDark();
-                if (now != dark) {
-                    dark = now;
-                    EventQueue.invokeLater(onChangeEdt);
-                }
-            }
-        }, "theme");
-        watcher.setDaemon(true);
-        watcher.start();
+    /** Runs on the EDT whenever the appearance flips. */
+    static void addListener(Runnable onChangeEdt) {
+        listeners.add(onChangeEdt);
+    }
+
+    /** Re-reads the system appearance; call off the EDT (it starts a process). */
+    static void refresh() {
+        update(readSystemDark());
+    }
+
+    static void update(boolean nowDark) {
+        if (nowDark == dark) return;
+        dark = nowDark;
+        for (Runnable r : listeners) EventQueue.invokeLater(r);
     }
 
     /** `defaults read -g AppleInterfaceStyle` prints "Dark" in dark mode and fails in light mode. */

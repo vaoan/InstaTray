@@ -459,6 +459,7 @@ public final class InstaTray implements WindowHost {
         videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
         loadJobs();
 
+        Theme.refresh(); // reads the appearance with a process: never on the EDT
         EventQueue.invokeAndWait(() -> {
             buildTray();
             // stays hidden: the app starts silently in the menu bar
@@ -1151,9 +1152,9 @@ public final class InstaTray implements WindowHost {
 
     @Override
     public void remove(Job job) {
-        if (job == current) return; // only cancelled, never removed while downloading
         boolean wasPending;
-        synchronized (pending) {
+        synchronized (pending) { // the worker sets current under this lock
+            if (job == current) return; // only cancelled, never removed while downloading
             wasPending = pending.remove(job);
         }
         if (wasPending) {

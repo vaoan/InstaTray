@@ -15,6 +15,17 @@ public class ThemeTest {
             T.check("accentTextContrast " + name, contrast(p.accentText(), p.accent()) >= 3, "");
         }
         T.check("darkIsDark", luminance(Theme.DARK.window()) < luminance(Theme.LIGHT.window()), "");
+
+        // every window's listener hears a change, and only a real change
+        int[] heard = {0, 0};
+        Theme.force(false);
+        Theme.addListener(() -> heard[0]++);
+        Theme.addListener(() -> heard[1]++);
+        Theme.update(true);
+        Theme.update(true);
+        javax.swing.SwingUtilities.invokeAndWait(() -> {}); // listeners run on the EDT
+        T.check("everyListenerHearsChange", heard[0] == 1 && heard[1] == 1, heard[0] + "/" + heard[1]);
+        T.check("updateSetsMode", Theme.isDark(), "");
         T.done();
     }
 
