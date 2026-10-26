@@ -914,13 +914,13 @@ final class DownloadsWindow {
         fr.dispose();
     }
 
-    private static void layoutAll(Component c) {
+    static void layoutAll(Component c) {
         c.doLayout();
         if (c instanceof Container k) for (Component x : k.getComponents()) layoutAll(x);
     }
 
     /** Sample jobs for --preview; every action is a no-op. */
-    private static final class PreviewHost implements WindowHost {
+    static final class PreviewHost implements WindowHost {
         private final List<Job> queue = new ArrayList<>(), finished = new ArrayList<>();
         boolean details;
 
