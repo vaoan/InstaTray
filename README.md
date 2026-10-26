@@ -14,10 +14,9 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 2. Copia el enlace de un video y se descarga solo. El ícono muestra el progreso.
 3. Los videos quedan en **`Documentos/Videos`**, o en la carpeta que elijas.
 
-- **Ventana principal:** desde el menú de la esfera (*Mostrar ventana*), o con doble clic en la app cuando ya está abierta (no abre otra copia).
-- **Campo "Enlace" de la ventana:** pega uno o varios enlaces y pulsa Enter o *Descargar*. Es como copiarlos, pero también vuelve a bajar lo ya descargado y prueba el extractor genérico (video embebido) aunque esa opción esté apagada. Si no encuentra un video compatible, el texto se queda en el campo para corregirlo.
-- **Cola e historial:** desde el menú de la esfera o con el botón de la ventana principal.
-- **Cerrar ventanas:** cerrarlas no cierra el programa. Para salir del todo usa *Salir*.
+- **Ventana:** una sola, con todas las descargas (ver "La ventana"). Se abre desde el menú de la esfera (*Mostrar ventana* o *Cola e historial…*), o con doble clic en la app cuando ya está abierta (no abre otra copia). Nunca se abre sola.
+- **Campo "Pega un enlace…":** pega uno o varios enlaces y pulsa Enter o *Descargar*. Es como copiarlos, pero también vuelve a bajar lo ya descargado y prueba el extractor genérico (video embebido) aunque esa opción esté apagada. Si no encuentra un video compatible, lo dice debajo del campo y el texto se queda ahí para corregirlo.
+- **Cerrar la ventana** no cierra el programa. Para salir del todo usa *Salir* en el menú de la esfera.
 
 ## Ícono
 
@@ -98,19 +97,19 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 - Que yt-dlp tenga un extractor no garantiza que funcione: algunos están rotos hasta que yt-dlp los arregla (se actualiza solo cada semana).
 
 **Páginas con video embebido ("Video embebido", opcional, apagado por defecto):**
-- Se activa con **Buscar video embebido en otras páginas** (menú de la esfera o ventana). Para una página suelta no hace falta activarlo: basta pegarla en el campo **Enlace** de la ventana o usar *Descargar copiado*. Sirve para estudiar cómo se bajan de forma genérica los videos puestos dentro de una página cualquiera (blogs, noticias, documentación).
+- Se activa con **Buscar video embebido en otras páginas** (menú de la esfera o Ajustes). Para una página suelta no hace falta activarlo: basta pegarla en el campo de la ventana o usar *Descargar enlace copiado ahora* del menú de la esfera. Sirve para estudiar cómo se bajan de forma genérica los videos puestos dentro de una página cualquiera (blogs, noticias, documentación).
 - Si ningún extractor conoce la página, la recibe el **extractor genérico de yt-dlp**, que busca en el HTML: etiquetas `<video>`/`<source>`, manifiestos **HLS** (`.m3u8`) y **DASH** (`.mpd`), metadatos `og:video` y reproductores embebidos conocidos (Vimeo, YouTube, JW Player, Brightcove…). Un enlace directo a `.mp4` o `.m3u8` también sirve.
-- En **Qué pasó** se ve lo que encontró y cómo lo bajó, por ejemplo: `Encontrado por HTML5MediaEmbed: formato 1, archivo directo por HTTP, …` o `… HLS (fragmentos .ts/.m4s), 1920x1080, 700 MB`, seguido del origen y, en HLS, del número de fragmentos (`Total fragments`). Con videos grandes así se ve si vienen como un solo archivo o en cientos de partes.
+- En **Detalles** se ve lo que encontró y cómo lo bajó, por ejemplo: `Encontrado por HTML5MediaEmbed: formato 1, archivo directo por HTTP, …` o `… HLS (fragmentos .ts/.m4s), 1920x1080, 700 MB`, seguido del origen y, en HLS, del número de fragmentos (`Total fragments`). Con videos grandes así se ve si vienen como un solo archivo o en cientos de partes.
 - Como con este modo cualquier página copiada se revisa, **si no tiene video no avisa**: queda en el historial como "No se encontró ningún video en la página".
 - Máximo **10** videos por página. El archivo se llama `dominio_título_[id].mp4`; con subcarpetas va a `Video embebido/`.
 - No hay ajustes especiales para ningún sitio: si el extractor genérico no encuentra el video (reproductores ofuscados, sitios que re-suben obras ajenas), no se baja.
 
 **Código de una página copiado (HTML):**
-- Si copias el **código fuente** de una página (Ver código fuente → Cmd+A → Cmd+C), o una parte de la página con el video dentro, InstaTray lee el HTML y baja el video. Funciona igual al copiar, pegando en el campo **Enlace** o con *Descargar copiado*.
+- Si copias el **código fuente** de una página (Ver código fuente → Cmd+A → Cmd+C), o una parte de la página con el video dentro, InstaTray lee el HTML y baja el video. Funciona igual al copiar, pegando en el campo de la ventana o con *Descargar enlace copiado ahora*.
 - Busca, en este orden: lo que la página reproduce (`<video>`/`<source>`, `og:video`, `contentUrl` de JSON-LD, enlaces `.mp4`/`.m3u8`/`.mpd` aunque estén dentro de scripts o sean rutas relativas, atributos como `data-video`/`data-hls-src`, configuraciones de reproductores como JW Player, Video.js o Clappr: `file:`, `hls:`, `videoUrl:`, `sources: […]`) y después los reproductores embebidos (`<iframe>`, también `data-src`). Los reproductores Plyr que envuelven YouTube o Vimeo (`data-plyr-provider` + `data-plyr-embed-id`) se bajan del sitio original. Las rutas relativas se completan con `<base>` o la URL canónica de la página.
 - **Varias calidades del mismo video** (lista `sources` de un reproductor, varios `<source size="720">` dentro de un `<video>`, o archivos como `clip_720p.mp4` y `clip_1080p.mp4`): se baja solo la mejor, y un manifiesto `.m3u8`/`.mpd` es preferido porque trae todas las calidades.
 - Lo que la página reproduce se baja aunque *Buscar video embebido* esté apagado (copiar una página con video ya es pedirlo). Los `<iframe>` solo si los reconoce un extractor real (YouTube, Vimeo…), para no bajar anuncios. Si no encuentra nada, prueba la URL canónica de la página.
-- Se ignoran `blob:` (reproductores que arman el video en el navegador: copia la página de origen o el `.m3u8`), audio e imágenes. Máximo 5 enlaces por copia. No se usan trucos anti-bot ni un navegador automático: si el servidor del video exige sesión o bloquea, no se baja. Cuando responde **403**, el Historial dice «El sitio no deja bajar este video fuera de su página» y *Abrir en el navegador* abre la página donde estaba el video, para verlo o guardarlo tú a mano.
+- Se ignoran `blob:` (reproductores que arman el video en el navegador: copia la página de origen o el `.m3u8`), audio e imágenes. Máximo 5 enlaces por copia. No se usan trucos anti-bot ni un navegador automático: si el servidor del video exige sesión o bloquea, no se baja. Cuando responde **403**, la fila dice «No deja bajar este video fuera de su página» y *Abrir página* abre la página donde estaba el video, para verlo o guardarlo tú a mano.
 
 **Pixiv:**
 - Pixiv no aloja videos normales. Lo animado son *ugoira* (cuadros sin sonido), que se convierten a mp4.
@@ -127,7 +126,9 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 - Se prefiere H.264. Si un sitio solo ofrece webm (VP8/VP9, como 9GAG), se convierte a mp4 solo.
 - Los parámetros de compartir (`?igsh=`, `?si=`, `?s=46`, `&t=…`) se quitan, y cada enlace pasa a su forma original.
 
-## Opciones (ventana principal)
+## Ajustes
+
+Botón **Ajustes** de la ventana (o ⌘,). Los cambios se aplican al momento.
 
 Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties`.
 
@@ -145,25 +146,45 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 - **Sí se reintenta:** errores de red, límite de peticiones y errores del servidor.
 - **No se reintenta**, porque no se arreglaría: transmisión en vivo, post sin video, falta de sesión (cookies), sitio que bloquea descargas automáticas (desafío anti-bot de Cloudflare) y yt-dlp no instalado.
 
-## Cola e historial
+## La ventana
 
-Ventana con dos pestañas. Abajo, un panel compartido **"Qué pasó"** muestra la salida de yt-dlp de la
-descarga seleccionada, en vivo mientras baja.
+Una sola ventana con todo: arriba el campo para pegar enlaces y el botón **Ajustes**; en el medio, una fila por
+descarga; abajo, una línea con el estado y las acciones. Sigue el modo claro u oscuro de macOS, también si cambias
+de modo con la ventana abierta.
 
-**Cola**: lo que se está bajando, con su porcentaje, y lo que espera, en orden.
-- *Poner primero*, *Subir* y *Bajar*: cambian el orden.
-- *Cancelar* y *Cancelar todo* (con confirmación): al cancelar una descarga en curso, se borran sus archivos a medio bajar (`.part`).
-- *Pausar cola* / *Reanudar cola*: lo que se está bajando termina, pero no empieza nada nuevo. También está en el menú de la esfera.
-- Los reintentos automáticos aparecen en la cola con su cuenta regresiva ("Reintento en 20 s").
-- Si cierras el programa con descargas pendientes, **las retoma al volver a abrirlo**.
+**Filtros:** *Todas*, *Descargando*, *En cola*, *Listas* y *Fallidas*, cada uno con su número. Las canceladas
+cuentan como fallidas.
 
-**Historial**: descargas terminadas (Listo, Falló, Cancelado), con hora y detalle.
-- *Reintentar* y *Reintentar fallidos*: también sirven para volver a bajar algo ya descargado.
-- *Mostrar video*: lo muestra en el Finder.
-- *Copiar enlace*: no dispara una nueva descarga.
-- *Abrir en el navegador*: abre el enlace, o la página de origen si el video salió de un HTML copiado.
-- *Limpiar historial* y *Abrir carpeta*.
-- Guarda las últimas 200 descargas, aunque cierres el programa. La salida de yt-dlp solo se conserva durante la sesión.
+**Cada fila:** la esfera del color del sitio, el **título del video** (o el enlace si todavía no se conoce), una
+línea gris con el estado y, mientras baja, una barra de progreso. A la derecha, siempre en la misma columna, sus
+botones (el azul es el principal):
+
+| Estado | Botones | Línea gris |
+|---|---|---|
+| Descargando | *Cancelar* | sitio · 45 % · velocidad · quedan 0:12 |
+| En cola | *Poner primero* · *Quitar* | sitio · en cola (2.º), o «reintento en 20 s» |
+| Lista | *Ver* · *Mostrar en Finder* | ✓ Listo · hace 5 min · 12.0 MB |
+| Fallida o cancelada | *Abrir página* · *Reintentar* · 🗑 | ✕ motivo del fallo |
+
+- **Doble clic** o **Enter** = botón azul. **⌫** quita de la lista las seleccionadas (nunca la que está bajando).
+  **Clic derecho**: las mismas acciones, *Copiar enlace* (no dispara otra descarga) y *Detalles*.
+- *Ver* abre el video; si lo moviste o borraste, lo avisa y abre la carpeta. *Abrir página* abre el enlace, o la
+  página de origen si el video salió de un HTML copiado.
+- *Cancelar* una descarga en curso borra sus archivos a medio bajar (`.part`). *Quitar* saca de la cola una que
+  espera, sin dejarla en Fallidas.
+- **Borrar o quitar solo saca filas de la lista: nunca borra videos.** La 🗑 de una fila no pregunta.
+
+**Línea de abajo:** a la izquierda, «● Vigilando portapapeles» (clic para pausarlo: «○ Portapapeles en pausa») y la
+carpeta de videos (clic para abrirla). A la derecha, según el filtro:
+- *Todas*: *Pausar* (lo que se está bajando termina, pero no empieza nada nuevo; también en el menú de la esfera).
+- *Descargando* / *En cola*: *Pausar* y *Cancelar todas* (cancela la actual y quita las que esperan; pregunta antes).
+- *Fallidas*: *Reintentar todas* y *Borrar todas* (pregunta antes).
+- *Listas*: *Quitar todas de la lista* (pregunta antes; los videos se quedan en la carpeta).
+- Siempre: **Detalles**, un panel plegable con la salida de yt-dlp de la fila seleccionada, en vivo mientras baja,
+  y un botón *Copiar*. Recuerda si lo dejaste abierto.
+
+Si cierras el programa con descargas pendientes, **las retoma al volver a abrirlo**. Guarda las últimas 200
+descargas (con su título); la salida de yt-dlp solo se conserva durante la sesión.
 
 ## Archivos del programa
 
@@ -172,7 +193,7 @@ En `~/Library/Application Support/InstaTray/`:
 | Archivo | Qué guarda |
 |---|---|
 | `settings.properties` | Opciones |
-| `jobs.tsv` | Cola e historial (últimas 200) |
+| `jobs.tsv` | Descargas de la ventana (últimas 200, con título) |
 | `downloaded.txt` | Claves ya descargadas: un enlace repetido no se vuelve a bajar solo |
 | `instatray.log` | Registro detallado (menú de la esfera → *Ver registro*) |
 | `cookies-session.txt` | Copia temporal con **solo** las cookies del sitio que se está bajando |
@@ -180,7 +201,7 @@ En `~/Library/Application Support/InstaTray/`:
 **Cookies:**
 - Por cada sitio se usa el `*cookie*.txt` más reciente de Descargas cuyo nombre menciona el sitio. Si no hay, se usa un export general que tenga cookies de ese sitio.
 - yt-dlp siempre recibe una **copia filtrada** con solo las cookies de ese sitio, y el original no se modifica.
-- La ventana principal muestra `✓` / `✗` por sitio.
+- *Ajustes* muestra para qué sitios hay cookies en Descargas.
 - Cuando un sitio pida sesión, exporta de nuevo **solo las cookies de ese sitio**. No conviene dejar en Descargas un export de todo el navegador.
 
 ## Requisitos (se instalan solos)
@@ -225,10 +246,15 @@ Si el programa está abierto, ciérralo antes de recompilar (*Salir*, o `pkill -
 ```
 InstaTray/
 ├── build.sh               # compila y arma la .app + acceso directo
+├── test.sh                # compila y corre las pruebas de test/
 ├── src/
-│   ├── InstaTray.java     # bandeja, ventana principal, portapapeles, sitios, cola, descargas
-│   ├── Job.java           # una descarga: estado, progreso, salida, reintentos
-│   ├── HistoryWindow.java # ventana Cola / Historial
+│   ├── InstaTray.java     # bandeja, portapapeles, sitios, cola, descargas, ajustes
+│   ├── Job.java           # una descarga: estado, progreso, título, salida, reintentos
+│   ├── JobView.java       # qué muestra cada fila: filtro, botones, línea gris (sin Swing, con pruebas)
+│   ├── WindowHost.java    # lo que la ventana le pide a la app
+│   ├── DownloadsWindow.java # la ventana (java DownloadsWindow --preview <carpeta>)
+│   ├── SettingsDialog.java  # Ajustes (java SettingsDialog --preview <carpeta>)
+│   ├── Theme.java         # colores claro/oscuro según macOS
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
 │   ├── launcher.sh        # lanzador del .app: instala lo que falte y arranca Java
 │   └── setup.command      # instalador de Homebrew + requisitos (se abre en Terminal)

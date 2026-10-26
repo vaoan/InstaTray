@@ -10,11 +10,19 @@ optional per-site subfolders. History keys are `ig:`, `yt:`, `x:`, `twclip:`, `t
 User-facing docs (Spanish) are in README.md — keep it in sync with every feature change.
 
 ## Files
-- `src/InstaTray.java` — tray, main window, clipboard, sites/regexes, queue (`pending` + worker thread), download,
-  cookies, settings, control channel.
+- `src/InstaTray.java` — tray, clipboard, sites/regexes, queue (`pending` + worker thread), download,
+  cookies, settings, control channel; implements `WindowHost`.
 - `src/Job.java` — one download: status (QUEUED/DOWNLOADING/DONE/FAILED/CANCELLED), percent, retry attempt,
-  `notBefore`, yt-dlp output (session only), announced destinations; persisted as TSV.
-- `src/HistoryWindow.java` — "Cola" / "Historial" tabs + shared "Qué pasó" output panel; polls every 500 ms.
+  `notBefore`, title, yt-dlp output (session only), announced destinations; persisted as TSV (9 columns, the 9th is
+  the title; older 7/8-column lines still load). `bytes` (file size) is computed at load/after download, not saved.
+- `src/DownloadsWindow.java` — the only window: link field, filter chips, one painted row per job (buttons in a fixed
+  column from `JobView.buttonBounds`), contextual footer, collapsible "Detalles" (yt-dlp output); polls every 500 ms;
+  selection follows `Job` objects. Talks to the app only through `WindowHost`.
+- `src/SettingsDialog.java` — "Ajustes" (⌘,): folder, clipboard, embeds, retries, notifications, cookie status.
+- `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
+- `src/WindowHost.java` — what the windows need from the app; `DownloadsWindow.PreviewHost` is the stub for previews.
+- `src/Theme.java` — light/dark palettes; follows `defaults read -g AppleInterfaceStyle` every 3 s.
+- `test.sh` + `test/*Test.java` — plain `main` tests (no JUnit), headless. Run `./test.sh` before committing.
 - `src/AeroIcon.java` — procedural icons; one `Palette` per `Site` with the same enum name (`Site.palette()`).
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is
   missing (log: `setup.log`), then starts java detached. No Homebrew → dialog + `setup.command` in Terminal (official
@@ -70,9 +78,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (images/audio/css/js/subtitles; JSON-LD contentUrl also names images) skipped. No Referer/anti-bot tricks.
   The user asked for a real/headless browser to fetch the "real" video from pasted HTML: declined (same bypass).
   Instead: EMBED 403 → permanent "no deja bajar este video fuera de su página" and `Job.page` (8th TSV column) keeps
-  the pasted page, which Historial "Abrir en el navegador" opens so the user can save it by hand.
-- Window "Enlace" field and "Descargar copiado" call `handleText(text, force=true)`: re-download allowed and EMBED
-  allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
+  the pasted page, which the row's "Abrir página" opens so the user can save it by hand.
+- Window link field (`WindowHost.submit`) and tray "Descargar enlace copiado ahora" call `handleText(text, force=true)`:
+  re-download allowed and EMBED allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
 
 ## Adding a site
 1. `Site` entry (engine, label, yt-dlp filename template, cookie-file keys — keys with a dot must start the file name —,
@@ -87,6 +95,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (toggle "Avisar si una descarga falla"); transient failures are retried silently (configurable 0–5 times, delay
   10s/30s/1m/5m growing linearly). Permanent failures (live, no video, login/cookies, no yt-dlp) are not retried.
 - The window opens only on explicit request: tray menu, or a second launch of the app.
+- One window only (user chose it): rows with text+icon buttons of equal width in a fixed column, filter chips,
+  "borrar todas" as discreet footer text that depends on the filter (a red standalone button was rejected).
+  "Borrar"/"Quitar" never delete files. Follows system light/dark mode.
 - Tray tooltip: live "Site · title — 45% · 2.1 MB/s · quedan 0:12 · +N en cola" (`tooltip()`, throttled
   `refreshTooltip()`); yt-dlp gives title/speed/eta via `--print before_dl:TITLE …` (+ `--no-simulate`) and the
   progress template; back to "sin descargas" when idle.
@@ -123,8 +134,10 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 ## Verifying without screen-recording/accessibility permissions
 `screencapture` and System Events are denied. Instead:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
-  `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`; an empty line
-  shows the window.
+  `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`,
+  `remove KEY` (out of the list, like the row 🗑 / "Quitar"); an empty line shows the window.
+- **Window renders**: `java -cp build/test-classes DownloadsWindow --preview DIR` (light, dark, Fallidas filter,
+  Detalles, empty) and `SettingsDialog --preview DIR`, after `./test.sh` compiled them. Read the PNGs.
 - **Log**: `updateTrayIcon()` logs `Tray icon -> PALETTE:badge:fillStep`; cleanup logs `Deleted partial …`.
 - **Swift CGWindowList**: layer-25 windows = menu-bar items (count with app running vs. not; all are owned by
   Control Center on macOS 26); windows owned by the java pid = app windows (check `onscreen`).

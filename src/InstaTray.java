@@ -961,7 +961,7 @@ public final class InstaTray implements WindowHost {
         boolean found = false;
         boolean source = looksLikeHtml(text);
         String plain = source ? "" : text;
-        // explicit requests (window field, "Descargar copiado") may use the generic extractor even with embeds off
+        // explicit requests (window field, "Descargar enlace copiado ahora") may use the generic extractor even with embeds off
         List<Link> links = new ArrayList<>(findLinks(plain));
         links.addAll(probeLibraries(otherCandidates(plain), embeds || force));
         String html = source ? text : richHtml;
@@ -977,7 +977,7 @@ public final class InstaTray implements WindowHost {
                 continue;
             }
             Job job = new Job(link, System.currentTimeMillis());
-            if (pv != null && pv.page() != null && fromPage.contains(link)) job.page = pv.page(); // for "Abrir en el navegador"
+            if (pv != null && pv.page() != null && fromPage.contains(link)) job.page = pv.page(); // for "Abrir página"
             synchronized (jobs) {
                 jobs.add(0, job);
             }
@@ -1751,7 +1751,7 @@ public final class InstaTray implements WindowHost {
             if (site == Site.OTHER || site == Site.EMBED) {
                 cmd.addAll(List.of("--playlist-items", "1:" + CATCH_ALL_MAX_ITEMS));
             }
-            // what the Generic extractor found, shown in "Qué pasó": extractor, format, protocol, size
+            // what the Generic extractor found, shown in "Detalles": extractor, format, protocol, size
             if (site == Site.EMBED) {
                 cmd.addAll(List.of("--print", "before_dl:" + FOUND_PREFIX + "%(extractor_key)s · %(format_id)s · "
                         + "%(protocol)s · %(resolution)s · %(filesize,filesize_approx)s · %(url).120s"));
@@ -1888,7 +1888,7 @@ public final class InstaTray implements WindowHost {
                     msg = "El sitio bloquea las descargas automáticas (Cloudflare)"; // retrying never helps
                 } else if (site == Site.EMBED && (all.contains("HTTP Error 403") || all.contains("Forbidden"))) {
                     // the server refuses anything but its own player: no workaround, the user can still open the page
-                    msg = "El sitio no deja bajar este video fuera de su página (403): usa «Abrir en el navegador»";
+                    msg = "El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»";
                 } else if (site == Site.EMBED && (msg.contains("Unsupported URL") || all.contains("404"))) {
                     msg = "No se encontró ningún video en la página";
                     silent = true; // the page was most likely copied for its text: never notify
@@ -1963,16 +1963,16 @@ public final class InstaTray implements WindowHost {
         }
         job.status = Job.Status.FAILED;
         job.message = job.attempt > 0 ? msg + " (tras " + job.attempt + " reintentos)" : msg;
-        setStatus("Falló " + name + " — mira el Historial");
+        setStatus("Falló " + name + " — mira Fallidas en la ventana");
         if (silent) return;
-        notify("No se pudo descargar " + name, job.message + " — abre el Historial para ver qué pasó o reintentar");
+        notify("No se pudo descargar " + name, job.message + " — abre la ventana (Fallidas) para ver qué pasó o reintentar");
     }
 
     private static final String PROGRESS_PREFIX = "PROG ";
     private static final String TITLE_PREFIX = "TITLE ";
     private static final String FOUND_PREFIX = "FOUND ";
 
-    /** "Generic · hls-1080 · m3u8_native · 1920x1080 · 734003200 · https://…" → readable line for "Qué pasó". */
+    /** "Generic · hls-1080 · m3u8_native · 1920x1080 · 734003200 · https://…" → readable line for "Detalles". */
     static String describeFound(String raw) {
         String[] f = raw.split(" · ", 6);
         if (f.length < 6) return "Encontrado: " + raw;
