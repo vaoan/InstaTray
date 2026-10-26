@@ -18,10 +18,16 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/DownloadsWindow.java` — the only window: link field, filter chips, one painted row per job (buttons in a fixed
   column from `JobView.buttonBounds`), contextual footer, collapsible "Detalles" (yt-dlp output); polls every 500 ms;
   selection follows `Job` objects. Talks to the app only through `WindowHost`.
-- `src/SettingsDialog.java` — "Ajustes" (⌘,): folder, clipboard, embeds, retries, notifications, cookie status.
+- `src/SettingsDialog.java` — "Ajustes" (⌘,): folder, clipboard, embeds, retries, notifications, cookie status,
+  "Instalar o actualizar requisitos" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
+  runBrew waits for the running download, which may call ensureTools; no Homebrew → opens setup.command).
 - `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
 - `src/WindowHost.java` — what the windows need from the app; `DownloadsWindow.PreviewHost` is the stub for previews.
-- `src/Theme.java` — light/dark palettes; follows `defaults read -g AppleInterfaceStyle` every 3 s.
+- `src/Theme.java` — light/dark palettes; appearance read at startup and every 3 s only while the window is visible.
+- `src/Glass.java` — the 2000s skin (user asked for it): dark = WMP11 glossy black + cyan glow, light = Vista glass.
+  Every surface is two gradients split at half height. Progress shimmer / indeterminate sweep math (tested).
+  The 40 ms animation timer runs only while a download row is shown; the list repaints only when a row changes
+  (idle window ≈ 0.7 % CPU — keep it that way).
 - `test.sh` + `test/*Test.java` — plain `main` tests (no JUnit), headless. Run `./test.sh` before committing.
 - `src/AeroIcon.java` — procedural icons; one `Palette` per `Site` with the same enum name (`Site.palette()`).
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is

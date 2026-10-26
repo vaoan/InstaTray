@@ -52,6 +52,7 @@ final class DownloadsWindow {
     private String shownOutput = "";
     private String footerKey = "";
     private int ticks;
+    private Timer animation;
 
     DownloadsWindow(WindowHost host, Runnable openSettings) {
         this.host = host;
@@ -89,6 +90,20 @@ final class DownloadsWindow {
             if (++ticks % 6 == 0) CompletableFuture.runAsync(Theme::refresh); // dark mode switched while open
         }).start();
         Theme.addListener(this::applyTheme);
+
+        // progress bars shimmer like Vista's: repaint only the downloading rows; reload() runs it only while one shows
+        animation = new Timer(40, e -> {
+            if (!frame.isVisible()) {
+                animation.stop();
+                return;
+            }
+            for (int i = 0; i < rows.model.size(); i++) {
+                if (rows.model.get(i).status == Job.Status.DOWNLOADING) {
+                    Rectangle cell = rows.list.getCellBounds(i, i);
+                    if (cell != null) rows.list.repaint(cell);
+                }
+            }
+        });
     }
 
     JFrame frame() {
@@ -110,8 +125,9 @@ final class DownloadsWindow {
     /** One line under the link field; clears itself after 6 s. */
     void showFieldMessage(String text) {
         fieldMessage.setText(text);
+        fieldMessage.setVisible(true);
         if (messageTimer != null) messageTimer.stop();
-        messageTimer = new Timer(6000, e -> fieldMessage.setText(" "));
+        messageTimer = new Timer(6000, e -> fieldMessage.setVisible(false));
         messageTimer.setRepeats(false);
         messageTimer.start();
     }
@@ -120,29 +136,33 @@ final class DownloadsWindow {
 
     private JComponent top() {
         JPanel top = panel(new BorderLayout());
-        top.setBorder(new EmptyBorder(14, 14, 4, 14));
 
-        JPanel fieldRow = panel(new BorderLayout(8, 0));
+        GlassPanel toolbar = new GlassPanel(GlassPanel.Kind.TOOLBAR, new BorderLayout(8, 0));
+        toolbar.setBorder(new EmptyBorder(12, 14, 11, 14));
         field.setFont(BASE);
         field.addActionListener(e -> submit());
-        fieldRow.add(field, BorderLayout.CENTER);
+        toolbar.add(field, BorderLayout.CENTER);
         JPanel buttons = panel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        buttons.setOpaque(false);
         buttons.add(new PillButton("Descargar", null, true, this::submit));
         buttons.add(new PillButton("Ajustes", Glyph.GEAR, false, openSettings));
-        fieldRow.add(buttons, BorderLayout.EAST);
-        top.add(fieldRow, BorderLayout.NORTH);
+        toolbar.add(buttons, BorderLayout.EAST);
+        top.add(toolbar, BorderLayout.NORTH);
 
+        GlassPanel band = new GlassPanel(GlassPanel.Kind.BAND, new BorderLayout());
+        band.setBorder(new EmptyBorder(9, 14, 9, 14));
         fieldMessage.setFont(SMALL);
-        fieldMessage.setBorder(new EmptyBorder(4, 2, 6, 0));
-        top.add(fieldMessage, BorderLayout.CENTER);
-
+        fieldMessage.setBorder(new EmptyBorder(0, 2, 4, 0));
+        fieldMessage.setVisible(false); // only takes room while it has something to say
+        band.add(fieldMessage, BorderLayout.NORTH);
         chips.setOpaque(false);
         for (JobView.Filter f : JobView.Filter.values()) {
             Chip c = new Chip(f);
             chipFor.put(f, c);
             chips.add(c);
         }
-        top.add(chips, BorderLayout.SOUTH);
+        band.add(chips, BorderLayout.CENTER);
+        top.add(band, BorderLayout.CENTER);
         return top;
     }
 
@@ -167,6 +187,8 @@ final class DownloadsWindow {
         list.getActionMap().put("remove", action(() -> list.getSelectedValuesList().stream()
                 .filter(JobView::removableByKey).forEach(host::remove)));
         JScrollPane scroll = new JScrollPane(list);
+        scroll.getVerticalScrollBar().setUI(new GlassScrollBar());
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(10, 0));
         scroll.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
         themed.add(scroll);
         return scroll;
@@ -177,6 +199,8 @@ final class DownloadsWindow {
         output.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         output.setBorder(new EmptyBorder(6, 8, 6, 8));
         JScrollPane scroll = new JScrollPane(output);
+        scroll.getVerticalScrollBar().setUI(new GlassScrollBar());
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(10, 0));
         scroll.setPreferredSize(new Dimension(100, 150));
         details.add(scroll, BorderLayout.CENTER);
         JPanel bar = panel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
@@ -188,9 +212,8 @@ final class DownloadsWindow {
     }
 
     private JComponent footer() {
-        JPanel footer = panel(new BorderLayout());
+        GlassPanel footer = new GlassPanel(GlassPanel.Kind.FOOTER, new BorderLayout());
         footer.setBorder(new EmptyBorder(8, 14, 9, 14));
-        footer.putClientProperty("footer", true);
         // the left side takes what the actions leave and the folder path shortens with "…" instead of overlapping
         JPanel left = panel(null);
         left.setLayout(new BoxLayout(left, BoxLayout.X_AXIS));
@@ -264,21 +287,33 @@ final class DownloadsWindow {
         List<Job> all = JobView.ordered(queue, host.finishedSnapshot());
         rows.queue = queue;
         rows.reload(all, filter);
+        boolean downloading = false;
+        for (int i = 0; i < rows.model.size() && !downloading; i++) downloading = rows.model.get(i).status == Job.Status.DOWNLOADING;
+        if (animation != null && downloading != animation.isRunning()) {
+            if (downloading) animation.start();
+            else animation.stop();
+        }
         for (JobView.Filter f : JobView.Filter.values()) {
             chipFor.get(f).set(f == filter, (int) all.stream().filter(j -> JobView.matches(f, j)).count());
         }
         boolean watching = host.isWatching();
         watchSwitch.setOn(watching);
-        watchLabel.setText(watching ? "Vigilando portapapeles" : "Portapapeles en pausa");
-        watchLabel.setMinimumSize(null);
-        watchLabel.setMaximumSize(null);
-        watchLabel.setMinimumSize(watchLabel.getPreferredSize()); // never shortened: the folder path gives way
-        watchLabel.setMaximumSize(watchLabel.getPreferredSize());
+        String watchText = watching ? "Vigilando portapapeles" : "Portapapeles en pausa";
+        if (!watchText.equals(watchLabel.getText())) { // size changes re-layout the window: only when the text does
+            watchLabel.setText(watchText);
+            watchLabel.setMinimumSize(null);
+            watchLabel.setMaximumSize(null);
+            watchLabel.setMinimumSize(watchLabel.getPreferredSize()); // never shortened: the folder path gives way
+            watchLabel.setMaximumSize(watchLabel.getPreferredSize());
+        }
         watchLabel.setForeground(watching ? Theme.current().text() : Theme.current().secondary());
-        folderLabel.setText(host.videosFolderLabel());
-        folderLabel.setMaximumSize(null);
-        folderLabel.setMaximumSize(folderLabel.getPreferredSize());
-        folderLabel.setMinimumSize(new Dimension(0, 0));
+        String folder = host.videosFolderLabel();
+        if (!folder.equals(folderLabel.getText())) {
+            folderLabel.setText(folder);
+            folderLabel.setMaximumSize(null);
+            folderLabel.setMaximumSize(folderLabel.getPreferredSize());
+            folderLabel.setMinimumSize(new Dimension(0, 0));
+        }
         rebuildFooterActions();
         refreshOutput();
     }
@@ -388,11 +423,10 @@ final class DownloadsWindow {
         output.setBackground(p.row());
         output.setForeground(p.text());
         output.setCaretColor(p.text());
-        field.setBackground(p.row());
+        field.setOpaque(false);
         field.setForeground(p.text());
         field.setCaretColor(p.text());
-        field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(p.buttonBorder(), 1, true), new EmptyBorder(5, 8, 5, 8)));
+        field.setBorder(new EmptyBorder(5, 12, 5, 12));
         fieldMessage.setForeground(p.secondary());
         folderLabel.setForeground(p.secondary());
         footerKey = "";
@@ -401,9 +435,7 @@ final class DownloadsWindow {
     }
 
     private static void applyTo(Component c, Theme.Palette p) {
-        if (c instanceof JPanel panel) {
-            panel.setBackground(Boolean.TRUE.equals(panel.getClientProperty("footer")) ? p.footer() : p.window());
-        }
+        if (c instanceof JPanel panel && !(panel instanceof GlassPanel)) panel.setBackground(p.window());
         if (c instanceof JLabel l && Boolean.TRUE.equals(l.getClientProperty("secondary"))) l.setForeground(p.secondary());
         if (c instanceof Container k) for (Component child : k.getComponents()) applyTo(child, p);
     }
@@ -472,9 +504,12 @@ final class DownloadsWindow {
             boolean same = shown.size() == model.size();
             for (int i = 0; same && i < shown.size(); i++) same = shown.get(i) == model.get(i);
             if (same) {
-                list.repaint(); // only statuses / percentages changed
+                int sig = signature(shown);
+                if (sig != lastSignature) list.repaint(); // statuses / percentages changed
+                lastSignature = sig;
                 return;
             }
+            lastSignature = signature(shown);
             List<Job> before = list.getSelectedValuesList();
             model.clear();
             model.addAll(shown);
@@ -483,6 +518,18 @@ final class DownloadsWindow {
                 int r = shown.indexOf(j);
                 if (r >= 0) list.addSelectionInterval(r, r);
             }
+        }
+
+        private int lastSignature;
+
+        /** Everything a row shows that can change while the list stays the same; minutes so "hace 5 min" ticks. */
+        private static int signature(List<Job> shown) {
+            int h = (int) (System.currentTimeMillis() / 60_000);
+            for (Job j : shown) {
+                h = 31 * h + java.util.Objects.hash(j.status, j.percent, j.speed, j.eta, j.title, j.message, j.bytes,
+                        j.notBefore > System.currentTimeMillis() ? (j.notBefore - System.currentTimeMillis()) / 1000 : 0);
+            }
+            return h;
         }
 
         /** 1-based place among the jobs waiting in the queue. */
@@ -593,10 +640,13 @@ final class DownloadsWindow {
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             Theme.Palette p = Theme.current();
             int w = getWidth(), h = getHeight();
-            g.setColor(selected ? p.rowSelected() : p.row());
+            g.setColor(p.row());
             g.fillRect(0, 0, w, h);
-            g.setColor(p.separator());
-            g.fillRect(14, h - 1, w - 14, 1);
+            Glass.row(g, w, h, Theme.isDark(), selected);
+            if (!selected) {
+                g.setColor(p.separator());
+                g.fillRect(14, h - 1, w - 14, 1);
+            }
 
             g.drawImage(orb(job.link.site()), 14, (h - 28) / 2, 28, 28, null);
 
@@ -604,7 +654,8 @@ final class DownloadsWindow {
             int textX = 14 + 28 + 12, textW = b[0].x - 12 - textX;
             g.setFont(BOLD);
             g.setColor(p.text());
-            boolean bar = job.status == Job.Status.DOWNLOADING && job.percent >= 0;
+            JobView.Bar barMode = JobView.barMode(job);
+            boolean bar = barMode != JobView.Bar.NONE;
             int titleY = bar ? 19 : 23;
             g.drawString(ellipsize(JobView.title(job), g.getFontMetrics(), textW), textX, titleY);
             g.setFont(SMALL);
@@ -616,11 +667,10 @@ final class DownloadsWindow {
             g.drawString(ellipsize(JobView.subtitle(job, rows.queuePosition(job), System.currentTimeMillis()),
                     g.getFontMetrics(), textW), textX, titleY + 17);
             if (bar) {
-                int by = titleY + 25;
-                g.setColor(p.track());
-                g.fill(new RoundRectangle2D.Double(textX, by, textW, 4, 4, 4));
-                g.setColor(p.accent());
-                g.fill(new RoundRectangle2D.Double(textX, by, textW * Math.min(100, job.percent) / 100.0, 4, 4, 4));
+                Rectangle track = new Rectangle(textX, titleY + 23, textW, 8);
+                long now = System.currentTimeMillis();
+                if (barMode == JobView.Bar.DETERMINATE) Glass.progress(g, track, job.percent / 100.0, now, Theme.isDark());
+                else Glass.indeterminate(g, track, now, Theme.isDark());
             }
 
             JobView.Action a1 = JobView.primary(job), a2 = JobView.secondary(job);
@@ -657,25 +707,24 @@ final class DownloadsWindow {
 
     /** A rounded button: accent fill for the primary one, plain with a border otherwise; icon + label centred. */
     static void paintButton(Graphics2D g, Rectangle r, String label, Glyph glyph, boolean primary, boolean hover, Theme.Palette p) {
-        RoundRectangle2D shape = new RoundRectangle2D.Double(r.x + 0.5, r.y + 0.5, r.width - 1, r.height - 1, 8, 8);
-        Color fill = primary ? p.accent() : p.button();
-        if (hover) fill = primary ? fill.brighter() : mix(fill, p.accent(), 0.12);
-        g.setColor(fill);
-        g.fill(shape);
-        if (!primary) {
-            g.setColor(p.buttonBorder());
-            g.draw(shape);
-        }
+        boolean dark = Theme.isDark();
+        Glass.button(g, r, primary, hover, dark);
         Color ink = primary ? p.accentText() : p.buttonText();
-        g.setFont(SMALL);
+        g.setFont(primary ? SMALL.deriveFont(Font.BOLD) : SMALL);
         FontMetrics fm = g.getFontMetrics();
         int iconW = glyph == null ? 0 : 12 + 6;
         String text = ellipsize(label, fm, r.width - 16 - iconW);
         int total = iconW + fm.stringWidth(text);
         int x = r.x + (r.width - total) / 2;
+        int y = r.y + (r.height + fm.getAscent() - fm.getDescent()) / 2;
+        if (primary) { // engraved look of glass buttons
+            if (glyph != null) glyph.paint(g, x, r.y + (r.height - 12) / 2.0 + 1, new Color(0, 0, 0, 90));
+            g.setColor(new Color(0, 0, 0, 90));
+            g.drawString(text, x + iconW, y + 1);
+        }
         if (glyph != null) glyph.paint(g, x, r.y + (r.height - 12) / 2.0, ink);
         g.setColor(ink);
-        g.drawString(text, x + iconW, r.y + (r.height + fm.getAscent() - fm.getDescent()) / 2);
+        g.drawString(text, x + iconW, y);
     }
 
     private static Color mix(Color a, Color b, double t) {
@@ -798,14 +847,21 @@ final class DownloadsWindow {
 
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    action.run();
+                    if (isEnabled()) action.run();
                 }
             });
         }
 
         @Override
+        public void setEnabled(boolean enabled) {
+            super.setEnabled(enabled);
+            setCursor(Cursor.getPredefinedCursor(enabled ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+            repaint();
+        }
+
+        @Override
         public Dimension getPreferredSize() {
-            FontMetrics fm = getFontMetrics(SMALL);
+            FontMetrics fm = getFontMetrics(primary ? SMALL.deriveFont(Font.BOLD) : SMALL);
             return new Dimension(fm.stringWidth(label) + 28 + (glyph == null ? 0 : 18), 28);
         }
 
@@ -814,7 +870,71 @@ final class DownloadsWindow {
             Graphics2D g = (Graphics2D) g0.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            paintButton(g, new Rectangle(0, 0, getWidth(), getHeight()), label, glyph, primary, hover, Theme.current());
+            if (!isEnabled()) g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+            paintButton(g, new Rectangle(0, 0, getWidth(), getHeight()), label, glyph, primary, hover && isEnabled(), Theme.current());
+            g.dispose();
+        }
+    }
+
+    /** Toolbar, chip band or status bar: paints the glass gradient of the current theme behind its children. */
+    static final class GlassPanel extends JPanel {
+        enum Kind { TOOLBAR, BAND, FOOTER }
+
+        private final Kind kind;
+
+        GlassPanel(Kind kind, LayoutManager layout) {
+            super(layout);
+            this.kind = kind;
+            setOpaque(true);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0.create();
+            boolean dark = Theme.isDark();
+            switch (kind) {
+                case TOOLBAR -> Glass.chrome(g, getWidth(), getHeight(), dark, true);
+                case BAND -> Glass.band(g, getWidth(), getHeight(), dark);
+                case FOOTER -> Glass.footer(g, getWidth(), getHeight(), dark);
+            }
+            g.dispose();
+        }
+    }
+
+    /** Thin rounded scrollbar that matches the theme (the stock one stays light in dark mode). */
+    static final class GlassScrollBar extends javax.swing.plaf.basic.BasicScrollBarUI {
+        @Override
+        protected JButton createDecreaseButton(int orientation) {
+            return zeroButton();
+        }
+
+        @Override
+        protected JButton createIncreaseButton(int orientation) {
+            return zeroButton();
+        }
+
+        private static JButton zeroButton() {
+            JButton b = new JButton();
+            b.setPreferredSize(new Dimension(0, 0));
+            return b;
+        }
+
+        @Override
+        protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
+            g.setColor(Theme.current().row());
+            g.fillRect(r.x, r.y, r.width, r.height);
+        }
+
+        @Override
+        protected void paintThumb(Graphics g0, JComponent c, Rectangle r) {
+            if (r.isEmpty()) return;
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Shape thumb = new RoundRectangle2D.Double(r.x + 2, r.y + 2, r.width - 4, r.height - 4, r.width - 4, r.width - 4);
+            if (Theme.isDark()) Glass.fill(g, thumb, Glass.rgb(0x5A616B), Glass.rgb(0x3A3F48), Glass.rgb(0x22252B), Glass.rgb(0x2E333A));
+            else Glass.fill(g, thumb, Glass.rgb(0xEEF5FC), Glass.rgb(0xD6E6F5), Glass.rgb(0xBCD3EA), Glass.rgb(0xCADDF0));
+            g.setColor(Theme.isDark() ? Color.BLACK : Glass.rgb(0x8DB2E3));
+            g.draw(thumb);
             g.dispose();
         }
     }
@@ -860,17 +980,7 @@ final class DownloadsWindow {
         protected void paintComponent(Graphics g0) {
             Graphics2D g = (Graphics2D) g0.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Theme.Palette p = Theme.current();
-            double w = 28, h = 16, y = (getHeight() - h) / 2;
-            g.setColor(on ? p.accent() : p.track());
-            g.fill(new RoundRectangle2D.Double(1, y, w, h, h, h));
-            if (!on) {
-                g.setColor(p.buttonBorder());
-                g.draw(new RoundRectangle2D.Double(1, y, w, h, h, h));
-            }
-            double knob = h - 4;
-            g.setColor(Color.WHITE);
-            g.fill(new Ellipse2D.Double(on ? 1 + w - knob - 2 : 3, y + 2, knob, knob));
+            Glass.toggle(g, new Rectangle(1, (getHeight() - 16) / 2, 28, 16), on, Theme.isDark());
             g.dispose();
         }
     }
@@ -906,7 +1016,7 @@ final class DownloadsWindow {
 
         @Override
         public Dimension getPreferredSize() {
-            return new Dimension(getFontMetrics(SMALL).stringWidth(text()) + 22, 24);
+            return new Dimension(getFontMetrics(SMALL).stringWidth(text()) + 24, 26);
         }
 
         @Override
@@ -915,8 +1025,7 @@ final class DownloadsWindow {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             Theme.Palette p = Theme.current();
-            g.setColor(on ? p.chipOn() : p.chip());
-            g.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), getHeight(), getHeight()));
+            Glass.chip(g, new Rectangle(1, 1, getWidth() - 2, getHeight() - 2), on, Theme.isDark());
             g.setFont(SMALL);
             FontMetrics fm = g.getFontMetrics();
             int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
@@ -939,6 +1048,10 @@ final class DownloadsWindow {
 
         @Override
         protected void paintComponent(Graphics g0) {
+            Graphics2D bg = (Graphics2D) g0.create();
+            bg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Glass.field(bg, new Rectangle(0, 0, getWidth(), getHeight()), Theme.isDark(), hasFocus());
+            bg.dispose();
             super.paintComponent(g0);
             if (!getText().isEmpty()) return;
             Graphics2D g = (Graphics2D) g0.create();
@@ -968,6 +1081,9 @@ final class DownloadsWindow {
                 render(h, true, JobView.Filter.ALL, false, new File(dir, "downloads-dark.png"));
                 render(h, true, JobView.Filter.FAILED, false, new File(dir, "downloads-failed-filter-dark.png"));
                 render(h, true, JobView.Filter.ALL, true, new File(dir, "downloads-details-dark.png"));
+                PreviewHost starting = new PreviewHost(true);
+                starting.queue.get(0).percent = -1; // "preparando…": the indeterminate sweep
+                render(starting, false, JobView.Filter.DOWNLOADING, false, new File(dir, "downloads-starting-light.png"));
                 PreviewHost narrow = new PreviewHost(true);
                 narrow.folder = "/Volumes/Disco externo/Mis videos descargados/<red social>";
                 render(narrow, false, JobView.Filter.FAILED, false, 560, new File(dir, "downloads-narrow-failed-light.png"));
@@ -1018,7 +1134,10 @@ final class DownloadsWindow {
         boolean details;
 
         PreviewHost(boolean withJobs) {
-            if (!withJobs) return;
+            if (!withJobs) {
+                missing = List.of("ffmpeg", "deno");
+                return;
+            }
             long now = System.currentTimeMillis();
             Job dl = job(InstaTray.Site.YOUTUBE, "yt:1", now, Job.Status.DOWNLOADING, "Cómo hacer pan casero en 10 minutos");
             dl.percent = 45;
@@ -1079,6 +1198,9 @@ final class DownloadsWindow {
         @Override public void setRetryDelaySec(int sec) {}
         @Override public void chooseVideosDir(Window owner) {}
         @Override public void cookiesSummary(Consumer<String> onEdt) { onEdt.accept("Cookies: Instagram, YouTube (2 de 26 sitios)"); }
+        List<String> missing = List.of();
+        @Override public List<String> missingTools() { return missing; }
+        @Override public void installTools(Consumer<String> progress, Runnable done) { done.run(); }
         @Override public boolean detailsOpen() { return details; }
         @Override public void setDetailsOpen(boolean open) {}
     }

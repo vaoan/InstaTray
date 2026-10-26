@@ -103,6 +103,14 @@ public class JobViewTest {
                     && b[0].x + b[0].width + 6 == b[1].x && b[1].x + b[1].width + 6 == b[2].x
                     && b[0].height == 24 && b[0].y == (52 - 24) / 2, java.util.Arrays.toString(b));
         }
+        // barMode: downloading always shows a bar; unknown percent sweeps instead of filling
+        Job known = job(Job.Status.DOWNLOADING);
+        known.percent = 10;
+        T.eq("barDeterminate", JobView.Bar.DETERMINATE, JobView.barMode(known));
+        T.eq("barIndeterminate", JobView.Bar.INDETERMINATE, JobView.barMode(job(Job.Status.DOWNLOADING)));
+        T.eq("barNoneWhenQueued", JobView.Bar.NONE, JobView.barMode(job(Job.Status.QUEUED)));
+        T.eq("barNoneWhenDone", JobView.Bar.NONE, JobView.barMode(done));
+
         T.check("buttonBoundsIgnoreText", java.util.Arrays.equals(JobView.buttonBounds(700, 52), JobView.buttonBounds(700, 52)), "");
         T.done();
     }

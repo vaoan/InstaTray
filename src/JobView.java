@@ -37,6 +37,8 @@ final class JobView {
 
     enum Tone { NORMAL, OK, BAD, MUTED }
 
+    enum Bar { NONE, DETERMINATE, INDETERMINATE }
+
     enum FooterAction { PAUSE, CANCEL_ALL, RETRY_ALL, DELETE_ALL_FAILED, REMOVE_ALL_DONE, DETAILS }
 
     static boolean matches(Filter f, Job j) {
@@ -109,6 +111,12 @@ final class JobView {
         if (min < 24 * 60) return "hace " + min / 60 + " h";
         if (min < 48 * 60) return "ayer";
         return new SimpleDateFormat("dd/MM").format(new Date(then));
+    }
+
+    /** Downloading rows always show a bar; before yt-dlp reports a percentage it sweeps back and forth. */
+    static Bar barMode(Job j) {
+        if (j.status != Job.Status.DOWNLOADING) return Bar.NONE;
+        return j.percent >= 0 ? Bar.DETERMINATE : Bar.INDETERMINATE;
     }
 
     static Tone tone(Job j) {

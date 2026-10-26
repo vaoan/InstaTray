@@ -3,6 +3,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -26,19 +27,21 @@ final class SettingsDialog {
     private final JComboBox<Integer> delay = new JComboBox<>(DELAYS);
     private final JCheckBox notify = new JCheckBox("Avisar con una notificación si una descarga falla");
     private final JLabel cookies = new JLabel();
+    private final JLabel tools = new JLabel();
+    private final DownloadsWindow.PillButton install;
     private boolean loading;
 
     SettingsDialog(Frame owner, WindowHost host) {
         this.host = host;
         dialog = new JDialog(owner, "Ajustes", true);
+        install = new DownloadsWindow.PillButton("Instalar o actualizar requisitos", null, true, this::installTools);
         dialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
 
         JPanel root = new JPanel();
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
         root.setBorder(new EmptyBorder(16, 20, 18, 20));
 
-        JButton change = new JButton("Cambiar…");
-        change.addActionListener(e -> {
+        DownloadsWindow.PillButton change = new DownloadsWindow.PillButton("Cambiar…", null, false, () -> {
             host.chooseVideosDir(dialog);
             load();
         });
@@ -69,6 +72,14 @@ final class SettingsDialog {
         cookies.setText("Buscando cookies…"); // sizes the row before the real summary arrives
         root.add(row(cookies));
         root.add(help("Exporta las cookies de cada sitio a Descargas para videos privados."));
+
+        section(root, "Requisitos", false);
+        tools.setFont(BASE);
+        tools.setText("Revisando…");
+        root.add(row(tools));
+        root.add(Box.createVerticalStrut(6));
+        root.add(row(install));
+        root.add(help("Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."));
 
         subfolders.addActionListener(e -> {
             if (!loading) host.setSubfolders(subfolders.isSelected());
@@ -119,7 +130,22 @@ final class SettingsDialog {
         dialog.setVisible(true);
     }
 
+    private void installTools() {
+        install.setEnabled(false);
+        host.installTools(text -> {
+            tools.setText(text);
+            dialog.pack();
+        }, () -> install.setEnabled(true));
+    }
+
+    private void showToolsState() {
+        if (!install.isEnabled()) return; // an install is running: keep its progress line
+        List<String> missing = host.missingTools();
+        tools.setText(missing.isEmpty() ? "Todo instalado ✓" : "Falta: " + String.join(", ", missing));
+    }
+
     private void load() {
+        showToolsState();
         loading = true;
         folder.setText("Videos en: " + host.videosFolderLabel());
         subfolders.setSelected(host.subfolders());
@@ -141,7 +167,8 @@ final class SettingsDialog {
         if (c instanceof JPanel || c instanceof JCheckBox) c.setBackground(p.window());
         if (c instanceof JLabel l) {
             Object role = l.getClientProperty("role");
-            l.setForeground("help".equals(role) || "header".equals(role) ? p.secondary() : p.text());
+            l.setForeground("help".equals(role) ? p.secondary()
+                    : "header".equals(role) ? (Theme.isDark() ? new Color(0x5CC8FF) : new Color(0x1E5799)) : p.text());
         }
         if (c instanceof JCheckBox b) b.setForeground(p.text());
         if (c instanceof Container k) for (Component child : k.getComponents()) paint(child, p);

@@ -142,6 +142,10 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 | Reintentos automáticos | 2 (0–5) | Si falla por algo temporal, reintenta en silencio |
 | Espera entre reintentos | 30 s (10 s, 30 s, 1 min, 5 min) | Crece en cada intento: 1×, 2×, 3×… |
 
+**Requisitos:** muestra «Todo instalado ✓» o qué falta (yt-dlp, gallery-dl, ffmpeg, deno). El botón **Instalar o
+actualizar requisitos** instala lo que falte con Homebrew y actualiza los cuatro; mientras tanto la cola espera a que
+termine la descarga en curso. Sin Homebrew, abre el instalador en Terminal (pide tu contraseña de administrador).
+
 **Qué se reintenta y qué no:**
 - **Sí se reintenta:** errores de red, límite de peticiones y errores del servidor.
 - **No se reintenta**, porque no se arreglaría: transmisión en vivo, post sin video, falta de sesión (cookies), sitio que bloquea descargas automáticas (desafío anti-bot de Cloudflare) y yt-dlp no instalado.
@@ -149,8 +153,12 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 ## La ventana
 
 Una sola ventana con todo: arriba el campo para pegar enlaces y el botón **Ajustes**; en el medio, una fila por
-descarga; abajo, una línea con el estado y las acciones. Sigue el modo claro u oscuro de macOS, también si cambias
-de modo con la ventana abierta.
+descarga; abajo, una línea con el estado y las acciones. Tiene piel de los 2000: con macOS en **modo oscuro** es
+la de **Windows Media Player 11** (cromo negro brillante, botones de cristal y luz cian) y en **modo claro** la del
+**cristal de Vista** (barras celestes, botones satinados, barra de progreso verde). Cambia sola si cambias de modo
+con la ventana abierta. Las barras de progreso tienen el destello que recorre la barra, como en Vista, y mientras
+todavía no se sabe el avance («preparando…») un bloque de brillo va y viene. La animación solo corre con la ventana
+abierta y una descarga en curso.
 
 **Filtros:** *Todas*, *Descargando*, *En cola*, *Listas* y *Fallidas*, cada uno con su número. Las canceladas
 cuentan como fallidas.
@@ -255,6 +263,7 @@ InstaTray/
 │   ├── DownloadsWindow.java # la ventana (java DownloadsWindow --preview <carpeta>)
 │   ├── SettingsDialog.java  # Ajustes (java SettingsDialog --preview <carpeta>)
 │   ├── Theme.java         # colores claro/oscuro según macOS
+│   ├── Glass.java         # piel WMP11 / Vista: degradados de cristal y animación de las barras
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
 │   ├── launcher.sh        # lanzador del .app: instala lo que falte y arranca Java
 │   └── setup.command      # instalador de Homebrew + requisitos (se abre en Terminal)

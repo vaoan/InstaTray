@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Light and dark colours for the hand-painted windows, following the macOS appearance. The appearance is read at
+ * Light (Vista glass) and dark (WMP11) colours for the hand-painted windows; Glass paints the gradients, following the macOS appearance. The appearance is read at
  * startup and, while the window is visible, every few seconds by its poll (never by a thread of its own).
  */
 final class Theme {
@@ -18,17 +18,19 @@ final class Theme {
                    Color accent, Color accentText, Color ok, Color bad, Color button, Color buttonBorder,
                    Color buttonText, Color chip, Color chipOn, Color chipOnText, Color track, Color footer) {}
 
+    // Vista's light-blue glass
     static final Palette LIGHT = new Palette(
-            new Color(0xF5F5F7), Color.WHITE, new Color(0xE3EEFF), new Color(0x1D1D1F), new Color(0x6E6E73),
-            new Color(0xE5E5EA), new Color(0x0A84FF), Color.WHITE, new Color(0x248A3D), new Color(0xD70015),
-            Color.WHITE, new Color(0xC7C7CC), new Color(0x1D1D1F), new Color(0xE9E9EE), new Color(0x1D1D1F),
-            Color.WHITE, new Color(0xE5E5EA), new Color(0xFAFAFA));
+            new Color(0xEEF5FC), Color.WHITE, new Color(0xDFF1FD), new Color(0x0D2A4A), new Color(0x5A7089),
+            new Color(0xE6EDF4), new Color(0x2D8FD5), Color.WHITE, new Color(0x1D7A2E), new Color(0xC42B1C),
+            new Color(0xE6E6E6), new Color(0x707070), new Color(0x1E395B), new Color(0xF3F3F3), new Color(0xBFE2F8),
+            new Color(0x0D2A4A), new Color(0xE2E2E2), new Color(0xDCE9F6));
 
+    // WMP11's glossy black with cyan light
     static final Palette DARK = new Palette(
-            new Color(0x1E1E1E), new Color(0x2A2A2A), new Color(0x1F3A5F), new Color(0xF5F5F7), new Color(0x98989D),
-            new Color(0x3A3A3C), new Color(0x0A84FF), Color.WHITE, new Color(0x32D74B), new Color(0xFF453A),
-            new Color(0x3A3A3C), new Color(0x4A4A4E), new Color(0xF5F5F7), new Color(0x3A3A3C), new Color(0xF5F5F7),
-            new Color(0x1D1D1F), new Color(0x3A3A3C), new Color(0x232323));
+            new Color(0x0B0B0D), new Color(0x0F1114), new Color(0x0F2D47), new Color(0xE9EEF3), new Color(0x8B96A3),
+            new Color(0x1C1F24), new Color(0x1A8AD3), Color.WHITE, new Color(0x6EE07A), new Color(0xFF6B5E),
+            new Color(0x2C3037), new Color(0x000000), new Color(0xE6ECF2), new Color(0x1F2226), new Color(0x1E95D8),
+            Color.WHITE, new Color(0x15171B), new Color(0x111316));
 
     private static volatile boolean dark = false; // set by refresh() off the EDT at startup
     private static final List<Runnable> listeners = new CopyOnWriteArrayList<>();

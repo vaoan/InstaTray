@@ -2173,7 +2173,7 @@ public final class InstaTray implements WindowHost {
      */
     private synchronized boolean ensureTools() {
         List<String> missing = new ArrayList<>();
-        for (String t : new String[]{"yt-dlp", "gallery-dl", "ffmpeg", "deno"}) {
+        for (String t : TOOLS) {
             if (findBin(t) == null) missing.add(t);
         }
         if (missing.isEmpty()) return true;
@@ -2190,6 +2190,67 @@ public final class InstaTray implements WindowHost {
         if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
         setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
         return findBin("yt-dlp") != null;
+    }
+
+    private static final String[] TOOLS = {"yt-dlp", "gallery-dl", "ffmpeg", "deno"};
+    private final java.util.concurrent.atomic.AtomicBoolean installingTools = new java.util.concurrent.atomic.AtomicBoolean();
+
+    @Override
+    public List<String> missingTools() {
+        return Arrays.stream(TOOLS).filter(t -> findBin(t) == null).toList();
+    }
+
+    /** The Ajustes button: install what is missing, then upgrade everything (the weekly upgrade only does yt-dlp). */
+    @Override
+    public void installTools(Consumer<String> progress, Runnable done) {
+        Consumer<String> say = text -> EventQueue.invokeLater(() -> progress.accept(text));
+        if (!installingTools.compareAndSet(false, true)) {
+            EventQueue.invokeLater(done);
+            return;
+        }
+        // no lock here: runBrew waits for the running download, which may itself call ensureTools()
+        Thread t = new Thread(() -> {
+            try {
+                String brew = findBrew();
+                if (brew == null) {
+                    openSetupCommand();
+                    say.accept("Se abrió el instalador en Terminal: te pedirá tu contraseña.");
+                } else {
+                    boolean ok = true;
+                    List<String> missing = missingTools();
+                    if (!missing.isEmpty()) {
+                        say.accept("Instalando " + String.join(", ", missing) + "… (la cola espera)");
+                        List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
+                        cmd.addAll(missing);
+                        ok = runBrew(cmd, "install " + missing);
+                    }
+                    say.accept("Actualizando " + String.join(", ", TOOLS) + "… (la cola espera)");
+                    List<String> up = new ArrayList<>(brewCommand(brew, "upgrade"));
+                    up.addAll(List.of(TOOLS));
+                    ok &= runBrew(up, "upgrade " + String.join(" ", TOOLS));
+                    if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
+                    say.accept(ok && missingTools().isEmpty() ? "Listo: todo instalado y al día ✓"
+                            : "No se pudo completar. Mira el registro (menú de la esfera → Ver registro).");
+                }
+            } finally {
+                installingTools.set(false);
+                EventQueue.invokeLater(done);
+            }
+        }, "install-tools");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** setup.command sits next to InstaTray.jar in the bundle's Resources; it installs Homebrew (asks for the password). */
+    private static void openSetupCommand() {
+        try {
+            Path jar = Paths.get(InstaTray.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path setup = jar.resolveSibling("setup.command");
+            new ProcessBuilder("open", "-a", "Terminal", setup.toString()).start();
+            log("Opened " + setup);
+        } catch (Exception e) {
+            log("ERROR opening setup.command: " + e);
+        }
     }
 
     /** Sites change often and old yt-dlp versions stop working: upgrade it silently once a week. */

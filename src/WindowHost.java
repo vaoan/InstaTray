@@ -76,6 +76,15 @@ interface WindowHost {
     /** Cookie files found in Downloads, computed off the EDT (it may trigger the privacy prompt). */
     void cookiesSummary(Consumer<String> onEdt);
 
+    /** Download tools not found (yt-dlp, gallery-dl, ffmpeg, deno), empty when all are there. */
+    List<String> missingTools();
+
+    /**
+     * Installs what is missing and upgrades all the tools with Homebrew (or opens the Homebrew installer in Terminal
+     * when there is no Homebrew). Runs in the background; progress and done run on the EDT.
+     */
+    void installTools(Consumer<String> progress, Runnable done);
+
     boolean detailsOpen();
 
     void setDetailsOpen(boolean open);
