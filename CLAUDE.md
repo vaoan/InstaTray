@@ -153,7 +153,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - The user's MacBook Air M1 has no notch; don't blame hidden menu-bar items on a notch.
 
 ## Verifying without screen-recording/accessibility permissions
-`screencapture` and System Events are denied. Instead:
+`screencapture` works since 2026-10-26 (permission granted): `screencapture -x -R X,0,W,30 out.png` with X/W of the
+menu-bar item from the Swift CGWindowList list below (2 px per point). System Events may still be denied. Also:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
   `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`,
   `remove KEY` (out of the list, like the row 🗑 / "Quitar"); an empty line shows the window.
