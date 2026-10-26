@@ -1,0 +1,36 @@
+# English for SettingsDialog.java (Ajustes): spanish<TAB>english
+1 vez	once
+%d veces	%d times
+Ajustes	Settings
+Instalar o actualizar	Install or update
+Cambiar…	Change…
+Apariencia	Appearance
+Tema	Theme
+Claro, oscuro o igual que el sistema.	Light, dark or the same as the system.
+Idioma	Language
+Español, inglés o el del sistema.	Spanish, English or the system's.
+Carpeta	Folder
+Carpeta de videos	Videos folder
+Una subcarpeta por red social	One subfolder per site
+Videos/Instagram, Videos/YouTube…	Videos/Instagram, Videos/YouTube…
+Descargas	Downloads
+Vigilar portapapeles	Watch clipboard
+Descarga sola cada enlace de video que copies.	Downloads every video link you copy, on its own.
+Buscar video embebido en otras páginas	Look for embedded video on other pages
+Reproductores, HLS y <video> de sitios que no están en la lista.	Players, HLS and <video> on sites not in the list.
+Si falla, reintentar	If it fails, retry
+Solo errores temporales: red, servidor, límite de peticiones.	Temporary errors only: network, server, rate limit.
+Espera entre reintentos	Wait between retries
+Cada reintento espera un poco más.	Each retry waits a little longer.
+Avisos	Notifications
+Avisar si una descarga falla	Notify if a download fails
+Las descargas que salen bien nunca avisan.	Downloads that succeed never notify.
+Buscando cookies…	Looking for cookies…
+Cookies	Cookies
+Exporta las cookies de cada sitio a Descargas para videos privados.	Export each site's cookies to Downloads for private videos.
+Revisando…	Checking…
+Requisitos	Requirements
+Instala lo que falte con winget y actualiza yt-dlp, gallery-dl, ffmpeg y deno.	Installs what is missing with winget and updates yt-dlp, gallery-dl, ffmpeg and deno.
+Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno.	Installs what is missing with Homebrew and updates yt-dlp, gallery-dl, ffmpeg and deno.
+Todo instalado ✓	Everything installed ✓
+Falta: %s	Missing: %s

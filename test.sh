@@ -9,6 +9,8 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 "$JDK/bin/javac" --release 21 -d "$OUT" src/*.java test/*.java
 
+cat lang/en/*.tsv > "$OUT/en.tsv"
+
 failed=0
 for f in test/*Test.java; do
     name=$(basename "$f" .java)

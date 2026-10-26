@@ -104,18 +104,24 @@ public final class InstaTray implements WindowHost {
         MASTODON(Engine.GALLERY_DL, "Mastodon", new String[]{"mastodon", "pawoo"}, "mastodon.social", "pawoo.net"),
         // Catch-alls: any other single-video URL yt-dlp has an extractor for, and posts on the creator-owned
         // platforms gallery-dl knows (CREATOR_PLATFORMS). Detected by asking the libraries (probeLibraries)
-        OTHER("Otros sitios", "%(extractor_key)s_%(title).70B_[%(id)s].%(ext)s", new String[0]),
-        OTHER_GALLERY(Engine.GALLERY_DL, "Otros sitios", new String[0]),
+        OTHER(Lang.key("Otros sitios"), "%(extractor_key)s_%(title).70B_[%(id)s].%(ext)s", new String[0]),
+        OTHER_GALLERY(Engine.GALLERY_DL, Lang.key("Otros sitios"), new String[0]),
         // Opt-in ("Buscar video embebido en otras páginas"): pages only yt-dlp's Generic extractor takes, which
         // looks for <video>/<source>, HLS/DASH manifests, og:video and known player iframes in the HTML
-        EMBED("Video embebido", "%(webpage_url_domain)s_%(title).70B_[%(id)s].%(ext)s", new String[0]);
+        EMBED(Lang.key("Video embebido"), "%(webpage_url_domain)s_%(title).70B_[%(id)s].%(ext)s", new String[0]);
 
         final Engine engine;
+        /** Spanish: also the subfolder name on disk, which never changes with the language; shown via display(). */
         final String label;
         /** yt-dlp output template (gallery-dl sites use {@link #GALLERY_DL_FILENAME}). */
         final String template;
         private final String[] cookieKeys;
         private final String[] domains;
+
+        /** The name shown to the user, in the current language (only the catch-alls have Spanish names). */
+        String display() {
+            return Lang.t(label);
+        }
 
         Site(String label, String template, String[] cookieKeys, String... domains) {
             this(Engine.YT_DLP, label, template, cookieKeys, domains);
@@ -470,6 +476,7 @@ public final class InstaTray implements WindowHost {
         videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
         loadJobs();
 
+        Lang.set(Lang.Choice.parse(settings.getProperty("language", "system")));
         Theme.setMode(Theme.Mode.parse(settings.getProperty("appearance", "system"))); // LIGHT/DARK apply at once
         Theme.refresh(); // reads the appearance with a process: never on the EDT
         EventQueue.invokeAndWait(() -> {
@@ -499,7 +506,7 @@ public final class InstaTray implements WindowHost {
 
         // Ignore whatever is already in the clipboard at startup
         lastClip = readClipboard();
-        poller.execute(() -> setStatus("Vigilando portapapeles"));
+        poller.execute(() -> setStatus(Lang.key("Vigilando portapapeles")));
         poller.scheduleWithFixedDelay(this::pollClipboard, 1, 1, TimeUnit.SECONDS);
         log("InstaTray started. Output: " + videosDir + (subfolders ? "/<Site>" : ""));
     }
@@ -509,63 +516,83 @@ public final class InstaTray implements WindowHost {
     private void buildTray() {
         PopupMenu menu = new PopupMenu();
 
-        statusItem = new MenuItem("Listo — copia un enlace de video");
+        statusItem = new MenuItem(Lang.t("Listo — copia un enlace de video"));
         statusItem.setEnabled(false);
         menu.add(statusItem);
 
-        cookiesItem = new MenuItem("Cookies: buscando en Descargas…");
+        cookiesItem = new MenuItem(Lang.t("Cookies: buscando en Descargas…"));
         cookiesItem.setEnabled(false);
         menu.add(cookiesItem);
         menu.addSeparator();
 
-        watchItem = new CheckboxMenuItem("Vigilar portapapeles", true);
+        watchItem = new CheckboxMenuItem("", true);
+        Lang.item(watchItem, "Vigilar portapapeles");
         watchItem.addItemListener(e -> setWatching(watchItem.getState()));
         menu.add(watchItem);
 
-        notifyItem = new CheckboxMenuItem("Avisar si una descarga falla", notifications);
+        notifyItem = new CheckboxMenuItem("", notifications);
+        Lang.item(notifyItem, "Avisar si una descarga falla");
         notifyItem.addItemListener(e -> setNotifications(notifyItem.getState()));
         menu.add(notifyItem);
 
-        MenuItem now = new MenuItem("Descargar enlace copiado ahora");
+        MenuItem now = new MenuItem();
+        Lang.item(now, "Descargar enlace copiado ahora");
         now.addActionListener(e -> downloadClipboardNow());
         menu.add(now);
 
-        subfoldersItem = new CheckboxMenuItem("Una subcarpeta por red social", subfolders);
+        subfoldersItem = new CheckboxMenuItem("", subfolders);
+        Lang.item(subfoldersItem, "Una subcarpeta por red social");
         subfoldersItem.addItemListener(e -> setSubfolders(subfoldersItem.getState()));
         menu.add(subfoldersItem);
 
-        embedsItem = new CheckboxMenuItem("Buscar video embebido en otras páginas", embeds);
+        embedsItem = new CheckboxMenuItem("", embeds);
+        Lang.item(embedsItem, "Buscar video embebido en otras páginas");
         embedsItem.addItemListener(e -> setEmbeds(embedsItem.getState()));
         menu.add(embedsItem);
 
-        MenuItem hist = new MenuItem("Cola e historial…");
+        MenuItem hist = new MenuItem();
+        Lang.item(hist, "Cola e historial…");
         hist.addActionListener(e -> showWindow());
         menu.add(hist);
 
-        pauseItem = new CheckboxMenuItem("Pausar cola", false);
+        pauseItem = new CheckboxMenuItem("", false);
+        Lang.item(pauseItem, "Pausar cola");
         pauseItem.addItemListener(e -> setPaused(pauseItem.getState()));
         menu.add(pauseItem);
 
-        MenuItem show = new MenuItem("Mostrar ventana");
+        MenuItem show = new MenuItem();
+        Lang.item(show, "Mostrar ventana");
         show.addActionListener(e -> showWindow());
         menu.add(show);
         menu.addSeparator();
 
-        MenuItem open = new MenuItem("Abrir carpeta de videos");
+        MenuItem open = new MenuItem();
+        Lang.item(open, "Abrir carpeta de videos");
         open.addActionListener(e -> openPath(videosDir));
         menu.add(open);
 
-        MenuItem openLog = new MenuItem("Ver registro");
+        MenuItem openLog = new MenuItem();
+        Lang.item(openLog, "Ver registro");
         openLog.addActionListener(e -> openPath(LOG));
         menu.add(openLog);
         menu.addSeparator();
 
-        MenuItem quit = new MenuItem("Salir");
+        MenuItem quit = new MenuItem();
+        Lang.item(quit, "Salir");
         quit.addActionListener(e -> {
             SystemTray.getSystemTray().remove(trayIcon);
             System.exit(0);
         });
         menu.add(quit);
+
+        // language changed in Ajustes: fixed labels from their keys, the status line, cookies line and tooltip anew
+        Lang.addListener(() -> {
+            Lang.relabel(menu);
+            poller.execute(this::restatus);
+            updateTrayIcon();
+            NativeBar b = bar;
+            if (b != null) b.syncMenu();
+        });
 
         BufferedImage icon = AeroIcon.render(AeroIcon.TRAY_PX);
         trayIcon = new TrayIcon(icon, "InstaTray", menu);
@@ -687,7 +714,7 @@ public final class InstaTray implements WindowHost {
         EventQueue.invokeLater(() -> {
             watchItem.setState(on);
         });
-        poller.execute(() -> setStatus(on ? "Vigilando portapapeles" : "En pausa"));
+        poller.execute(() -> setStatus(on ? Lang.key("Vigilando portapapeles") : Lang.key("En pausa")));
     }
 
     @Override
@@ -741,6 +768,17 @@ public final class InstaTray implements WindowHost {
     }
 
     @Override
+    public Lang.Choice language() {
+        return Lang.choice();
+    }
+
+    @Override
+    public void setLanguage(Lang.Choice choice) {
+        Lang.set(choice);
+        saveSetting("language", choice.name().toLowerCase(Locale.ROOT));
+    }
+
+    @Override
     public Theme.Mode appearance() {
         return Theme.mode();
     }
@@ -786,7 +824,7 @@ public final class InstaTray implements WindowHost {
 
     @Override
     public String videosFolderLabel() {
-        return displayPath(videosDir) + (subfolders ? "/<red social>" : "");
+        return displayPath(videosDir) + (subfolders ? "/" + Lang.t("<red social>") : "");
     }
 
     @Override
@@ -822,7 +860,7 @@ public final class InstaTray implements WindowHost {
     public void chooseVideosDir(Window owner) {
         if (Platform.WINDOWS) { // FileDialog cannot pick folders on Windows
             javax.swing.JFileChooser fc = new javax.swing.JFileChooser(videosDir.toFile());
-            fc.setDialogTitle("Elige la carpeta para los videos");
+            fc.setDialogTitle(Lang.t("Elige la carpeta para los videos"));
             fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
             if (fc.showOpenDialog(owner) != javax.swing.JFileChooser.APPROVE_OPTION) return;
             setVideosDir(fc.getSelectedFile().toPath());
@@ -830,7 +868,7 @@ public final class InstaTray implements WindowHost {
         }
         // Native macOS folder picker
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
-        String title = "Elige la carpeta para los videos";
+        String title = Lang.t("Elige la carpeta para los videos");
         FileDialog fd = owner instanceof Dialog d ? new FileDialog(d, title, FileDialog.LOAD)
                 : new FileDialog(owner instanceof Frame f ? f : null, title, FileDialog.LOAD);
         fd.setDirectory(videosDir.toString());
@@ -851,10 +889,10 @@ public final class InstaTray implements WindowHost {
         return subfolders ? videosDir.resolve(site.label) : videosDir;
     }
 
-    /** "~/Documents/Videos" -> "Documentos/Videos" for messages. */
+    /** "~/Documents/Videos" -> "Documentos/Videos" (Finder's name for Documents in the current language). */
     static String displayPath(Path p) {
         Path docs = HOME.resolve("Documents");
-        if (p.startsWith(docs)) return "Documentos/" + docs.relativize(p);
+        if (p.startsWith(docs)) return Lang.t("Documentos") + "/" + docs.relativize(p);
         if (p.startsWith(HOME)) return Platform.WINDOWS ? HOME.relativize(p).toString() : "~/" + HOME.relativize(p);
         return p.toString();
     }
@@ -884,7 +922,7 @@ public final class InstaTray implements WindowHost {
         poller.execute(() -> {
             String clip = readClipboard();
             if (!handleText(clip, readClipboardHtml(), true)) {
-                setStatus("No hay un enlace de video compatible copiado");
+                setStatus(Lang.key("No hay un enlace de video compatible copiado"));
             }
         });
     }
@@ -925,18 +963,20 @@ public final class InstaTray implements WindowHost {
 
     /** "YouTube · Me at the zoo — 45% · 2.1 MB/s · quedan 0:12 · +2 en cola" */
     private String tooltip(int pending) {
-        if (paused && pending > 0) return "InstaTray — cola en pausa, " + pending + (pending == 1 ? " pendiente" : " pendientes");
+        if (paused && pending > 0) {
+            return pending == 1 ? Lang.t("InstaTray — cola en pausa, 1 pendiente") : Lang.f("InstaTray — cola en pausa, %d pendientes", pending);
+        }
         Job j = current;
         if (j == null || j.isFinished()) {
-            return pending == 0 ? "InstaTray — sin descargas" : "InstaTray — " + pending + " en cola";
+            return pending == 0 ? Lang.t("InstaTray — sin descargas") : Lang.f("InstaTray — %d en cola", pending);
         }
         StringBuilder sb = new StringBuilder(j.link.label());
         if (!j.title.isBlank()) sb.append(" · ").append(shorten(j.title, 50));
-        sb.append(" — ").append(j.percent >= 0 ? j.percent + "%" : "preparando…");
+        sb.append(" — ").append(j.percent >= 0 ? j.percent + "%" : Lang.t("preparando…"));
         if (!j.speed.isBlank()) sb.append(" · ").append(j.speed);
-        if (!j.eta.isBlank()) sb.append(" · quedan ").append(j.eta);
-        if (pending > 1) sb.append(" · +").append(pending - 1).append(" en cola");
-        if (j.attempt > 0) sb.append(" · reintento ").append(j.attempt);
+        if (!j.eta.isBlank()) sb.append(" · ").append(Lang.f("quedan %s", j.eta));
+        if (pending > 1) sb.append(" · ").append(Lang.f("+%d en cola", pending - 1));
+        if (j.attempt > 0) sb.append(" · ").append(Lang.f("reintento %d", j.attempt));
         return sb.toString();
     }
 
@@ -972,8 +1012,18 @@ public final class InstaTray implements WindowHost {
         return h > 0 ? String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec) : String.format(Locale.ROOT, "%d:%02d", m, sec);
     }
 
-    // Must not run on the EDT: reading ~/Downloads may block on the macOS privacy prompt
-    private void setStatus(String text) {
+    /** The status line's Spanish key and arguments, to redo it after a language change. */
+    private volatile String statusKey = Lang.key("Listo — copia un enlace de video");
+    private volatile Object[] statusArgs = {};
+
+    /**
+     * es: Spanish key (pass it through Lang.key), formatted with args in the current language.
+     * Must not run on the EDT: reading ~/Downloads may block on the macOS privacy prompt.
+     */
+    private void setStatus(String es, Object... args) {
+        statusKey = es;
+        statusArgs = args;
+        String text = Lang.f(es, args);
         String cookies = cookiesLabel();
         EventQueue.invokeLater(() -> {
             statusItem.setLabel(text);
@@ -981,13 +1031,18 @@ public final class InstaTray implements WindowHost {
         });
     }
 
+    /** The status and cookies lines again, in the current language (off the EDT). */
+    private void restatus() {
+        setStatus(statusKey, statusArgs);
+    }
+
     private String cookiesLabel() {
         List<String> with = new ArrayList<>();
         for (Site site : NAMED_SITES) {
-            if (findCookies(site) != null) with.add(site.label);
+            if (findCookies(site) != null) with.add(site.display());
         }
-        return with.isEmpty() ? "Cookies: ninguna en Descargas"
-                : "Cookies: " + String.join(", ", with) + " (" + with.size() + " de " + NAMED_SITES.size() + " sitios)";
+        return with.isEmpty() ? Lang.t("Cookies: ninguna en Descargas")
+                : Lang.f("Cookies: %s (%d de %d sitios)", String.join(", ", with), with.size(), NAMED_SITES.size());
     }
 
     // ---------------------------------------------------------------- clipboard
@@ -1033,9 +1088,9 @@ public final class InstaTray implements WindowHost {
     record Link(Site site, String key, String url) {
         /** What the user sees as the site: the label, or the extractor/category name for catch-alls. */
         String label() {
-            if (!site.isCatchAll()) return site.label;
+            if (!site.isCatchAll()) return site.display();
             String[] k = key.split(":", 3);
-            if (k.length < 2 || k[1].isEmpty()) return site.label;
+            if (k.length < 2 || k[1].isEmpty()) return site.display();
             return Character.toUpperCase(k[1].charAt(0)) + k[1].substring(1); // gallery-dl categories are lower-case
         }
     }
@@ -1064,7 +1119,7 @@ public final class InstaTray implements WindowHost {
             String key = link.key();
             if (queued.contains(key)) continue;
             if (done.contains(key) && !force) {
-                setStatus("Ya descargado: " + link.label() + " " + shortKey(key));
+                setStatus(Lang.key("Ya descargado: %s %s"), link.label(), shortKey(key));
                 continue;
             }
             Job job = new Job(link, System.currentTimeMillis());
@@ -1107,7 +1162,7 @@ public final class InstaTray implements WindowHost {
         job.clearOutput();
         if (activeSite == null) activeSite = job.link.site();
         updateTrayIcon();
-        setStatus("En cola: " + job.link.label() + " " + shortKey(job.link.key()));
+        setStatus(Lang.key("En cola: %s %s"), job.link.label(), shortKey(job.link.key()));
         saveJobs();
         synchronized (pending) {
             pending.addLast(job);
@@ -1280,14 +1335,14 @@ public final class InstaTray implements WindowHost {
         }
         EventQueue.invokeLater(() -> pauseItem.setState(on));
         log("Queue " + (on ? "paused" : "resumed"));
-        poller.execute(() -> setStatus(on ? "Cola en pausa (lo que se está bajando termina)" : "Vigilando portapapeles"));
+        poller.execute(() -> setStatus(on ? Lang.key("Cola en pausa (lo que se está bajando termina)") : Lang.key("Vigilando portapapeles")));
         updateTrayIcon();
     }
 
     private void markCancelled(Job job) {
         job.status = Job.Status.CANCELLED;
         job.percent = -1;
-        job.message = "Cancelado";
+        job.message = Lang.t("Cancelado");
         job.notBefore = 0;
         queued.remove(job.link.key());
         if (queued.isEmpty()) activeSite = null;
@@ -1311,12 +1366,12 @@ public final class InstaTray implements WindowHost {
             String err = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             if (p.waitFor() == 0 && Files.exists(Paths.get(out))) {
                 Files.deleteIfExists(Paths.get(file));
-                job.addOutput("[InstaTray] convertido a mp4: " + out);
+                job.addOutput("[InstaTray] " + Lang.f("convertido a mp4: %s", out));
                 return out;
             }
-            job.addOutput("[InstaTray] no se pudo convertir " + file + ": " + err);
+            job.addOutput("[InstaTray] " + Lang.f("no se pudo convertir %s: %s", file, err));
         } catch (Exception e) {
-            job.addOutput("[InstaTray] no se pudo convertir " + file + ": " + e);
+            job.addOutput("[InstaTray] " + Lang.f("no se pudo convertir %s: %s", file, e));
         }
         return file;
     }
@@ -1333,15 +1388,16 @@ public final class InstaTray implements WindowHost {
         pixivLoginOpened = true;
         String galleryDl = findBin("gallery-dl");
         if (galleryDl == null) {
-            notify("InstaTray", "gallery-dl todavía no está instalado; vuelve a intentarlo en un minuto");
+            notify("InstaTray", Lang.t("gallery-dl todavía no está instalado; vuelve a intentarlo en un minuto"));
             poller.execute(this::ensureTools);
             return;
         }
-        String script = "tell application \"Terminal\"\n activate\n do script \"clear; echo 'InstaTray: conectar Pixiv (solo una vez)'; "
+        // the title goes inside '…' in a shell line inside an AppleScript string: no quotes in its translations
+        String script = "tell application \"Terminal\"\n activate\n do script \"clear; echo '" + Lang.t("InstaTray: conectar Pixiv (solo una vez)") + "'; "
                 + galleryDl + " oauth:pixiv\"\nend tell";
         try {
             if (Platform.WINDOWS) {
-                ProcessBuilder pb = new ProcessBuilder(Platform.consoleCommand(true, "InstaTray - conectar Pixiv", galleryDl, "oauth:pixiv"));
+                ProcessBuilder pb = new ProcessBuilder(Platform.consoleCommand(true, Lang.t("InstaTray - conectar Pixiv"), galleryDl, "oauth:pixiv"));
                 toolEnvironment(pb);
                 pb.start();
                 log("Opened a console for gallery-dl oauth:pixiv");
@@ -1806,7 +1862,7 @@ public final class InstaTray implements WindowHost {
             String bin = findBin(tool);
             if (bin == null && ensureTools()) bin = findBin(tool);
             if (bin == null) {
-                fail(job, name, "Falta " + tool + " y no se pudo instalar (mira el registro)", true);
+                fail(job, name, Lang.f("Falta %s y no se pudo instalar (mira el registro)", tool), true);
                 return;
             }
             Files.createDirectories(outDir);
@@ -1818,7 +1874,7 @@ public final class InstaTray implements WindowHost {
             job.status = Job.Status.DOWNLOADING;
             job.percent = gallery ? -1 : 0;
             updateTrayIcon();
-            setStatus("Descargando " + name + "…");
+            setStatus(Lang.key("Descargando %s…"), name);
             log("Downloading " + link.url() + (cookies != null ? " with cookies " + cookies : " without cookies"));
 
             List<String> cmd = gallery ? new ArrayList<>(List.of(
@@ -1892,7 +1948,7 @@ public final class InstaTray implements WindowHost {
                                 job.percent = pct;
                                 activePercent = pct;
                                 updateTrayIcon();
-                                if (pct % 10 == 0) setStatus("Descargando " + name + "… " + pct + "%");
+                                if (pct % 10 == 0) setStatus(Lang.key("Descargando %s… %d%%"), name, pct);
                             }
                             continue; // progress lines are not logged
                         }
@@ -1928,7 +1984,7 @@ public final class InstaTray implements WindowHost {
                             job.percent = pct;
                             activePercent = pct;
                             updateTrayIcon();
-                            if (pct % 10 == 0) setStatus("Descargando " + name + "… " + pct + "%");
+                            if (pct % 10 == 0) setStatus(Lang.key("Descargando %s… %d%%"), name, pct);
                         }
                         continue; // progress lines are not logged
                     }
@@ -1954,7 +2010,7 @@ public final class InstaTray implements WindowHost {
                 killAndWait(p);
                 deletePartials(job);
                 markCancelled(job);
-                setStatus("Cancelado: " + name);
+                setStatus(Lang.key("Cancelado: %s"), name);
                 return;
             }
 
@@ -1971,41 +2027,41 @@ public final class InstaTray implements WindowHost {
                 job.files = List.copyOf(files);
                 job.bytes = fileSize(files.get(0));
                 job.percent = 100;
-                job.message = (files.size() > 1 ? files.size() + " videos en " : "Guardado en ") + displayPath(outDir)
-                        + (files.size() == 1 ? "/" + Paths.get(files.get(0)).getFileName() : "");
+                job.message = files.size() > 1 ? Lang.f("%d videos en %s", files.size(), displayPath(outDir))
+                        : Lang.f("Guardado en %s", displayPath(outDir) + "/" + Paths.get(files.get(0)).getFileName());
                 job.status = Job.Status.DONE;
-                setStatus("Listo: " + name); // success is silent: only failures notify
+                setStatus(Lang.key("Listo: %s"), name); // success is silent: only failures notify
             } else {
                 String msg = tail.toString();
                 boolean permanent = true;
                 boolean silent = false;
                 String all = job.outputText();
                 if (gallery && exit == 0) {
-                    msg = "Ese post no tiene video ni animación (solo imágenes)";
+                    msg = Lang.t("Ese post no tiene video ni animación (solo imágenes)");
                 } else if (site == Site.PIXIV && (all.contains("refresh-token") || all.contains("401")
                         || all.contains("Unauthorized") || all.contains("OAuth"))) {
-                    msg = "Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta";
+                    msg = Lang.t("Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta");
                     connectPixiv();
                 } else if (gallery && (all.contains("403") || all.contains("401") || all.contains("login")
                         || all.contains("Forbidden") || all.contains("cookies"))) {
-                    msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
+                    msg = Lang.f("%s pide sesión: exporta cookies nuevas de %s a Descargas", link.label(), cookieSource(link));
                 } else if (all.contains("anti-bot challenge")) {
-                    msg = "El sitio bloquea las descargas automáticas (Cloudflare)"; // retrying never helps
+                    msg = Lang.t("El sitio bloquea las descargas automáticas (Cloudflare)"); // retrying never helps
                 } else if (site == Site.EMBED && (all.contains("HTTP Error 403") || all.contains("Forbidden"))) {
                     // the server refuses anything but its own player: no workaround, the user can still open the page
-                    msg = "El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»";
+                    msg = Lang.t("El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»");
                 } else if (site == Site.EMBED && (msg.contains("Unsupported URL") || all.contains("404"))) {
-                    msg = "No se encontró ningún video en la página";
+                    msg = Lang.t("No se encontró ningún video en la página");
                     silent = true; // the page was most likely copied for its text: never notify
                 } else if (all.contains("404") || all.contains("NotFound") || all.contains("not found")) {
-                    msg = "No existe, se borró o es privado";
+                    msg = Lang.t("No existe, se borró o es privado");
                 } else if (exit == 0 || msg.contains("is_live")) {
-                    msg = "Es una transmisión en vivo: no se graba";
+                    msg = Lang.t("Es una transmisión en vivo: no se graba");
                 } else if (msg.contains("There is no video") || msg.contains("No video could be found")) {
-                    msg = "Ese post no tiene video";
+                    msg = Lang.t("Ese post no tiene video");
                 } else if ((msg.contains("login") || msg.contains("cookies") || msg.contains("Sign in"))
                         && !msg.contains("rate-limit")) {
-                    msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
+                    msg = Lang.f("%s pide sesión: exporta cookies nuevas de %s a Descargas", link.label(), cookieSource(link));
                 } else {
                     permanent = false; // network, rate limits, server errors: worth retrying
                     if (msg.startsWith("ERROR: ")) msg = msg.substring("ERROR: ".length());
@@ -2023,7 +2079,7 @@ public final class InstaTray implements WindowHost {
                 killAndWait(currentProcess);
                 deletePartials(job);
                 markCancelled(job);
-                setStatus("Cancelado: " + name);
+                setStatus(Lang.key("Cancelado: %s"), name);
             } else {
                 fail(job, name, String.valueOf(e.getMessage()));
             }
@@ -2054,11 +2110,11 @@ public final class InstaTray implements WindowHost {
             long wait = (long) retryDelaySec * job.attempt;
             job.status = Job.Status.QUEUED; // keeps its slot in the queue (and in the tray count) while waiting
             job.percent = -1;
-            job.message = "Falló (" + msg + "). Reintento " + job.attempt + "/" + maxRetries + " en "
-                    + (wait < 60 ? wait + " s" : wait / 60 + " min");
-            job.addOutput("--- reintento automático " + job.attempt + "/" + maxRetries + " en " + wait + " s ---");
+            job.message = Lang.f("Falló (%s). Reintento %d/%d en %s", msg, job.attempt, maxRetries,
+                    wait < 60 ? wait + " s" : wait / 60 + " min");
+            job.addOutput("--- " + Lang.f("reintento automático %d/%d en %d s", job.attempt, maxRetries, wait) + " ---");
             log("Auto-retry " + job.attempt + "/" + maxRetries + " in " + wait + "s: " + job.link.url());
-            setStatus("Reintentará " + name + " en " + wait + " s");
+            setStatus(Lang.key("Reintentará %s en %d s"), name, wait);
             job.notBefore = System.currentTimeMillis() + wait * 1000;
             synchronized (pending) {
                 pending.addLast(job);
@@ -2067,10 +2123,12 @@ public final class InstaTray implements WindowHost {
             return;
         }
         job.status = Job.Status.FAILED;
-        job.message = job.attempt > 0 ? msg + " (tras " + job.attempt + " reintentos)" : msg;
-        setStatus("Falló " + name + " — mira Fallidas en la ventana");
+        job.message = job.attempt == 0 ? msg : job.attempt == 1 ? Lang.f("%s (tras 1 reintento)", msg)
+                : Lang.f("%s (tras %d reintentos)", msg, job.attempt);
+        setStatus(Lang.key("Falló %s — mira Fallidas en la ventana"), name);
         if (silent) return;
-        notify("No se pudo descargar " + name, job.message + " — abre la ventana (Fallidas) para ver qué pasó o reintentar");
+        notify(Lang.f("No se pudo descargar %s", name),
+                Lang.f("%s — abre la ventana (Fallidas) para ver qué pasó o reintentar", job.message));
     }
 
     private static final String PROGRESS_PREFIX = "PROG ";
@@ -2080,13 +2138,13 @@ public final class InstaTray implements WindowHost {
     /** "Generic · hls-1080 · m3u8_native · 1920x1080 · 734003200 · https://…" → readable line for "Detalles". */
     static String describeFound(String raw) {
         String[] f = raw.split(" · ", 6);
-        if (f.length < 6) return "Encontrado: " + raw;
-        String size = f[4].equals("NA") ? "tamaño desconocido" : formatBytes(parseOr(f[4], 0));
-        String how = f[2].startsWith("m3u8") ? "HLS (fragmentos .ts/.m4s)"
-                : f[2].startsWith("http_dash") || f[2].contains("dash") ? "DASH (fragmentos)"
-                : f[2].startsWith("http") ? "archivo directo por HTTP" : f[2];
-        return "Encontrado por " + f[0] + ": formato " + f[1] + ", " + how + ", " + (f[3].equals("NA") ? "resolución desconocida" : f[3]) + ", " + size
-                + "\n  origen: " + f[5];
+        if (f.length < 6) return Lang.f("Encontrado: %s", raw);
+        String size = f[4].equals("NA") ? Lang.t("tamaño desconocido") : formatBytes(parseOr(f[4], 0));
+        String how = f[2].startsWith("m3u8") ? Lang.t("HLS (fragmentos .ts/.m4s)")
+                : f[2].startsWith("http_dash") || f[2].contains("dash") ? Lang.t("DASH (fragmentos)")
+                : f[2].startsWith("http") ? Lang.t("archivo directo por HTTP") : f[2];
+        return Lang.f("Encontrado por %s: formato %s, %s, %s, %s\n  origen: %s", f[0], f[1], how,
+                f[3].equals("NA") ? Lang.t("resolución desconocida") : f[3], size, f[5]);
     }
     /** gallery-dl terminal-mode progress: " 45%  1.20MB 300.00kB/s". */
     private static final Pattern GALLERY_DL_PERCENT =
@@ -2199,7 +2257,7 @@ public final class InstaTray implements WindowHost {
 
     /** Where the user should export cookies from, as shown in messages. */
     private static String cookieSource(Link link) {
-        return link.site().isCatchAll() ? baseDomain(host(link.url())) : link.site().label;
+        return link.site().isCatchAll() ? baseDomain(host(link.url())) : link.site().display();
     }
 
     private static long modifiedTime(Path p) {
@@ -2265,7 +2323,7 @@ public final class InstaTray implements WindowHost {
             if (!Files.isRegularFile(Platform.venvPython(venv))) {
                 String python = findPython();
                 if (python == null) {
-                    say.accept("Instalando Python… (la cola espera)");
+                    say.accept(Lang.t("Instalando Python… (la cola espera)"));
                     String winget = findWinget();
                     if (winget != null) runInstall(Platform.wingetInstall(winget, Platform.wingetId("python")), "winget install python");
                     python = findPython();
@@ -2274,12 +2332,13 @@ public final class InstaTray implements WindowHost {
                     log("No Python to create the tools venv (winget " + (findWinget() == null ? "missing" : "failed") + ")");
                     return false;
                 }
-                say.accept("Preparando yt-dlp y gallery-dl…");
+                say.accept(Lang.t("Preparando yt-dlp y gallery-dl…"));
                 ok = runInstall(List.of(python, "-m", "venv", venv.toString()), "python -m venv " + venv);
             }
             List<String> need = upgrade ? venvTools : venvTools.stream().filter(t -> findBin(t) == null).toList();
             if (ok && !need.isEmpty()) {
-                say.accept((upgrade ? "Actualizando " : "Instalando ") + String.join(", ", need) + "… (la cola espera)");
+                String names = String.join(", ", need);
+                say.accept(upgrade ? Lang.f("Actualizando %s… (la cola espera)", names) : Lang.f("Instalando %s… (la cola espera)", names));
                 ok = runInstall(Platform.pipInstall(venv, upgrade, need), "pip " + (upgrade ? "upgrade " : "install ") + need);
             }
         }
@@ -2294,7 +2353,7 @@ public final class InstaTray implements WindowHost {
                 for (String t : wingetTools) {
                     boolean isMissing = missing.contains(t);
                     if (!isMissing && !upgrade) continue;
-                    say.accept((isMissing ? "Instalando " : "Actualizando ") + t + "… (la cola espera)");
+                    say.accept(isMissing ? Lang.f("Instalando %s… (la cola espera)", t) : Lang.f("Actualizando %s… (la cola espera)", t));
                     String id = Platform.wingetId(t);
                     // "no newer version" is a non-zero exit too, so an upgrade only fails if the tool is gone
                     runInstall(isMissing ? Platform.wingetInstall(winget, id) : Platform.wingetUpgrade(winget, id),
@@ -2354,24 +2413,24 @@ public final class InstaTray implements WindowHost {
         }
         if (missing.isEmpty()) return true;
         if (Platform.WINDOWS) {
-            setStatus("Instalando " + String.join(", ", missing) + "…");
+            setStatus(Lang.key("Instalando %s…"), String.join(", ", missing));
             boolean ok = windowsTools(missing, false, line -> {});
-            if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
-            setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
+            if (!ok) notify("InstaTray", Lang.f("No se pudo instalar %s (mira el registro)", String.join(", ", missing)));
+            setStatus(ok ? Lang.key("Vigilando portapapeles") : Lang.key("Faltan herramientas — mira el registro"));
             return findBin("yt-dlp") != null;
         }
         String brew = findBrew();
         if (brew == null) {
             log("Missing " + missing + " and Homebrew is not installed");
-            notify("InstaTray", "Falta " + String.join(", ", missing) + ". Abre InstaTray de nuevo para instalarlo");
+            notify("InstaTray", Lang.f("Falta %s. Abre InstaTray de nuevo para instalarlo", String.join(", ", missing)));
             return false;
         }
-        setStatus("Instalando " + String.join(", ", missing) + "…");
+        setStatus(Lang.key("Instalando %s…"), String.join(", ", missing));
         List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
         cmd.addAll(missing);
         boolean ok = runInstall(cmd, "install " + missing);
-        if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
-        setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
+        if (!ok) notify("InstaTray", Lang.f("No se pudo instalar %s (mira el registro)", String.join(", ", missing)));
+        setStatus(ok ? Lang.key("Vigilando portapapeles") : Lang.key("Faltan herramientas — mira el registro"));
         return findBin("yt-dlp") != null;
     }
 
@@ -2397,8 +2456,8 @@ public final class InstaTray implements WindowHost {
                 if (Platform.WINDOWS) {
                     boolean ok = windowsTools(List.of(TOOLS), true, say);
                     if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
-                    say.accept(ok && missingTools().isEmpty() ? "Listo: todo instalado y al día ✓"
-                            : "No se pudo completar. Mira el registro (menú del ícono → Ver registro).");
+                    say.accept(ok && missingTools().isEmpty() ? Lang.t("Listo: todo instalado y al día ✓")
+                            : Lang.t("No se pudo completar. Mira el registro (menú del ícono → Ver registro)."));
                     return;
                 }
                 String brew = findBrew();
@@ -2406,28 +2465,28 @@ public final class InstaTray implements WindowHost {
                     HomebrewInstall hb = installHomebrew(say);
                     brew = hb.brew();
                     if (brew == null && hb.cancelled()) {
-                        say.accept("No se instaló nada: hace falta tu contraseña para instalar Homebrew.");
+                        say.accept(Lang.t("No se instaló nada: hace falta tu contraseña para instalar Homebrew."));
                     } else if (brew == null) { // last resort: the official script in Terminal
                         openSetupCommand();
-                        say.accept("No se pudo instalar Homebrew desde aquí: se abrió el instalador en Terminal.");
+                        say.accept(Lang.t("No se pudo instalar Homebrew desde aquí: se abrió el instalador en Terminal."));
                     }
                 }
                 if (brew != null) {
                     boolean ok = true;
                     List<String> missing = missingTools();
                     if (!missing.isEmpty()) {
-                        say.accept("Instalando " + String.join(", ", missing) + "… (la cola espera)");
+                        say.accept(Lang.f("Instalando %s… (la cola espera)", String.join(", ", missing)));
                         List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
                         cmd.addAll(missing);
                         ok = runInstall(cmd, "install " + missing);
                     }
-                    say.accept("Actualizando " + String.join(", ", TOOLS) + "… (la cola espera)");
+                    say.accept(Lang.f("Actualizando %s… (la cola espera)", String.join(", ", TOOLS)));
                     List<String> up = new ArrayList<>(brewCommand(brew, "upgrade"));
                     up.addAll(List.of(TOOLS));
                     ok &= runInstall(up, "upgrade " + String.join(" ", TOOLS));
                     if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
-                    say.accept(ok && missingTools().isEmpty() ? "Listo: todo instalado y al día ✓"
-                            : "No se pudo completar. Mira el registro (menú de la esfera → Ver registro).");
+                    say.accept(ok && missingTools().isEmpty() ? Lang.t("Listo: todo instalado y al día ✓")
+                            : Lang.t("No se pudo completar. Mira el registro (menú del ícono → Ver registro)."));
                 }
             } finally {
                 installingTools.set(false);
@@ -2447,7 +2506,7 @@ public final class InstaTray implements WindowHost {
     private static HomebrewInstall installHomebrew(Consumer<String> say) {
         Path pkg = null;
         try {
-            say.accept("Descargando Homebrew…");
+            say.accept(Lang.t("Descargando Homebrew…"));
             HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL)
                     .connectTimeout(Duration.ofSeconds(20)).build();
             String json = http.send(HttpRequest.newBuilder(URI.create("https://api.github.com/repos/Homebrew/brew/releases/latest"))
@@ -2463,7 +2522,7 @@ public final class InstaTray implements WindowHost {
                 log("Homebrew .pkg download -> HTTP " + got.statusCode());
                 return new HomebrewInstall(null, false);
             }
-            say.accept("Instalando Homebrew… macOS te pedirá tu contraseña.");
+            say.accept(Lang.t("Instalando Homebrew… macOS te pedirá tu contraseña."));
             String script = "do shell script \"/usr/sbin/installer -pkg \" & quoted form of \"" + esc(pkg.toString())
                     + "\" & \" -target /\" with administrator privileges";
             Process p = new ProcessBuilder("osascript", "-e", script).redirectErrorStream(true).start();

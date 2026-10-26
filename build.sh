@@ -13,6 +13,7 @@ mkdir -p build/classes
 
 # --release 21: runs on any recent Java that Homebrew installs
 "$JAVAC" --release 21 -d build/classes src/*.java
+cat lang/en/*.tsv > build/classes/en.tsv # English texts (Lang), one file per source file
 "$JAR" --create --file build/InstaTray.jar --main-class InstaTray -C build/classes .
 
 # Icon: render PNGs with Java, pack with iconutil

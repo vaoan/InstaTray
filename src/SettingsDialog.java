@@ -28,9 +28,10 @@ final class SettingsDialog {
     private final DownloadsWindow.Switch subfolders = new DownloadsWindow.Switch();
     private final DownloadsWindow.Switch watch = new DownloadsWindow.Switch();
     private final DownloadsWindow.Switch embeds = new DownloadsWindow.Switch();
-    private final Choice<Integer> retries = new Choice<>(RETRIES, n -> n == 1 ? "1 vez" : n + " veces");
+    private final Choice<Integer> retries = new Choice<>(RETRIES, n -> n == 1 ? Lang.t("1 vez") : Lang.f("%d veces", n));
     private final Choice<Integer> delay = new Choice<>(DELAYS, sec -> sec < 60 ? sec + " s" : sec / 60 + " min");
-    private final Choice<Theme.Mode> appearance = new Choice<>(Theme.Mode.values(), m -> m.label);
+    private final Choice<Theme.Mode> appearance = new Choice<>(Theme.Mode.values(), m -> Lang.t(m.label));
+    private final Choice<Lang.Choice> language = new Choice<>(Lang.Choice.values(), Lang.Choice::display);
     private final DownloadsWindow.Switch notify = new DownloadsWindow.Switch();
     private final JLabel cookies = new JLabel();
     private final JLabel tools = new JLabel();
@@ -39,43 +40,44 @@ final class SettingsDialog {
 
     SettingsDialog(Frame owner, WindowHost host) {
         this.host = host;
-        dialog = new JDialog(owner, "Ajustes", true);
-        install = new DownloadsWindow.PillButton("Instalar o actualizar", null, true, this::installTools);
+        dialog = new JDialog(owner, Lang.t("Ajustes"), true);
+        install = new DownloadsWindow.PillButton(Lang.key("Instalar o actualizar"), null, true, this::installTools);
         dialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
 
         JPanel root = new JPanel();
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
         root.setBorder(new EmptyBorder(6, 20, 20, 20));
 
-        DownloadsWindow.PillButton change = new DownloadsWindow.PillButton("Cambiar…", null, false, () -> {
+        DownloadsWindow.PillButton change = new DownloadsWindow.PillButton(Lang.key("Cambiar…"), null, false, () -> {
             host.chooseVideosDir(dialog);
             load();
         });
         change.setPreferredSize(new Dimension(CONTROL_W, 28));
         folder.setFont(HELP);
         folder.putClientProperty("role", "help");
-        card(root, "Apariencia",
-                option("Tema", "Claro, oscuro o igual que el sistema.", appearance));
-        card(root, "Carpeta",
-                option(title("Carpeta de videos"), folder, change),
-                option("Una subcarpeta por red social", "Videos/Instagram, Videos/YouTube…", subfolders));
-        card(root, "Descargas",
-                option("Vigilar portapapeles", "Descarga sola cada enlace de video que copies.", watch),
-                option("Buscar video embebido en otras páginas",
-                        "Reproductores, HLS y <video> de sitios que no están en la lista.", embeds),
-                option("Si falla, reintentar", "Solo errores temporales: red, servidor, límite de peticiones.", retries),
-                option("Espera entre reintentos", "Cada reintento espera un poco más.", delay));
-        card(root, "Avisos",
-                option("Avisar si una descarga falla", "Las descargas que salen bien nunca avisan.", notify));
+        card(root, Lang.key("Apariencia"),
+                option(Lang.key("Tema"), Lang.key("Claro, oscuro o igual que el sistema."), appearance),
+                option(Lang.key("Idioma"), Lang.key("Español, inglés o el del sistema."), language));
+        card(root, Lang.key("Carpeta"),
+                option(title(Lang.key("Carpeta de videos")), folder, change),
+                option(Lang.key("Una subcarpeta por red social"), Lang.key("Videos/Instagram, Videos/YouTube…"), subfolders));
+        card(root, Lang.key("Descargas"),
+                option(Lang.key("Vigilar portapapeles"), Lang.key("Descarga sola cada enlace de video que copies."), watch),
+                option(Lang.key("Buscar video embebido en otras páginas"),
+                        Lang.key("Reproductores, HLS y <video> de sitios que no están en la lista."), embeds),
+                option(Lang.key("Si falla, reintentar"), Lang.key("Solo errores temporales: red, servidor, límite de peticiones."), retries),
+                option(Lang.key("Espera entre reintentos"), Lang.key("Cada reintento espera un poco más."), delay));
+        card(root, Lang.key("Avisos"),
+                option(Lang.key("Avisar si una descarga falla"), Lang.key("Las descargas que salen bien nunca avisan."), notify));
         cookies.setFont(BASE);
-        cookies.setText("Buscando cookies…"); // sizes the row before the real summary arrives
-        card(root, "Cookies",
-                option(cookies, help("Exporta las cookies de cada sitio a Descargas para videos privados."), null));
+        cookies.setText(Lang.t("Buscando cookies…")); // sizes the row before the real summary arrives
+        card(root, Lang.key("Cookies"),
+                option(cookies, help(Lang.key("Exporta las cookies de cada sitio a Descargas para videos privados.")), null));
         tools.setFont(BASE);
-        tools.setText("Revisando…");
-        card(root, "Requisitos",
-                option(tools, help(Platform.WINDOWS ? "Instala lo que falte con winget y actualiza yt-dlp, gallery-dl, ffmpeg y deno."
-                        : "Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."),
+        tools.setText(Lang.t("Revisando…"));
+        card(root, Lang.key("Requisitos"),
+                option(tools, help(Platform.WINDOWS ? Lang.key("Instala lo que falte con winget y actualiza yt-dlp, gallery-dl, ffmpeg y deno.")
+                        : Lang.key("Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno.")),
                         install));
 
         subfolders.onToggle = () -> flip(subfolders, host::setSubfolders);
@@ -87,6 +89,9 @@ final class SettingsDialog {
         };
         appearance.onChange = m -> {
             if (!loading) host.setAppearance(m);
+        };
+        language.onChange = c -> {
+            if (!loading) host.setLanguage(c);
         };
         delay.onChange = sec -> {
             if (!loading) host.setRetryDelaySec(sec);
@@ -105,12 +110,26 @@ final class SettingsDialog {
 
         dialog.setContentPane(root);
         Theme.addListener(this::applyTheme);
+        Lang.addListener(this::applyLanguage);
+    }
+
+    /** Labels remember their Spanish key; the cookie and tools lines are recomputed. */
+    private void applyLanguage() {
+        dialog.setTitle(Lang.t("Ajustes"));
+        Lang.relabel(dialog.getContentPane());
+        load();
+        if (dialog.isVisible()) host.cookiesSummary(text -> {
+            cookies.setText(text);
+            dialog.pack();
+        });
+        dialog.getContentPane().repaint();
+        if (dialog.isVisible()) dialog.pack();
     }
 
     /** Re-reads every value, shows the dialog (blocks: it is modal). */
     void open() {
         load();
-        cookies.setText("Buscando cookies…");
+        cookies.setText(Lang.t("Buscando cookies…"));
         host.cookiesSummary(text -> {
             cookies.setText(text);
             dialog.pack(); // the summary is usually wider than "Buscando cookies…"
@@ -132,7 +151,7 @@ final class SettingsDialog {
     private void showToolsState() {
         if (!install.isEnabled()) return; // an install is running: keep its progress line
         List<String> missing = host.missingTools();
-        tools.setText(missing.isEmpty() ? "Todo instalado ✓" : "Falta: " + String.join(", ", missing));
+        tools.setText(missing.isEmpty() ? Lang.t("Todo instalado ✓") : Lang.f("Falta: %s", String.join(", ", missing)));
     }
 
     private void load() {
@@ -146,6 +165,7 @@ final class SettingsDialog {
         retries.set(host.maxRetries());
         delay.set(host.retryDelaySec());
         appearance.set(host.appearance());
+        language.set(host.language());
         loading = false;
     }
 
@@ -174,7 +194,7 @@ final class SettingsDialog {
 
     /** Grey caps header, then a rounded card holding the rows, separated by inset hairlines. */
     private static void card(JPanel root, String title, JComponent... rows) {
-        JLabel h = new JLabel(title.toUpperCase());
+        JLabel h = Lang.upper(new JLabel(), title);
         h.setFont(HEADER);
         h.putClientProperty("role", "header");
         h.setBorder(new EmptyBorder(14, PAD, 6, 0));
@@ -218,14 +238,15 @@ final class SettingsDialog {
         return row;
     }
 
+    /** text: Spanish key. */
     private static JLabel title(String text) {
-        JLabel l = new JLabel(text);
+        JLabel l = Lang.text(new JLabel(), text);
         l.setFont(BASE);
         return l;
     }
 
     private static JLabel help(String text) {
-        JLabel l = new JLabel(text);
+        JLabel l = Lang.text(new JLabel(), text);
         l.setFont(HELP);
         l.putClientProperty("role", "help");
         return l;
@@ -308,6 +329,7 @@ final class SettingsDialog {
                         });
                         menu.add(item);
                     }
+                    DownloadsWindow.styleMenu(menu);
                     menu.show(Choice.this, 0, getHeight());
                 }
 
@@ -376,6 +398,7 @@ final class SettingsDialog {
             try {
                 for (boolean dark : new boolean[]{false, true}) {
                     Theme.force(dark);
+                    Lang.force(dark); // dark preview in English: both languages get looked at
                     SettingsDialog s = new SettingsDialog(null, new DownloadsWindow.PreviewHost(false));
                     s.load();
                     s.host.cookiesSummary(s.cookies::setText);

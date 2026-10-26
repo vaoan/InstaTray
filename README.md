@@ -174,6 +174,7 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 | Opción | Por defecto | Qué hace |
 |---|---|---|
 | Tema (*Apariencia*) | Sistema | *Claro*, *Oscuro* o *Sistema* (sigue el modo de macOS o Windows) |
+| Idioma (*Apariencia*) | Sistema | *Español*, *English* o *Sistema* (el primer idioma preferido del sistema: español si es español, si no inglés). Cambia la ventana, Ajustes, el menú y los avisos al momento |
 | Vigilar portapapeles | sí | Pausa o reanuda la detección automática de enlaces |
 | Avisar si una descarga falla | sí | Notificación **solo** cuando algo falla definitivamente. Lo que sale bien nunca notifica |
 | Carpeta de videos (*Cambiar…*) | `Documentos/Videos` | Selector de carpetas nativo de macOS |
@@ -365,8 +366,8 @@ puede ver. Al cancelar desde la cola, InstaTray lo borra.
   - **Sin probar:** el caso sin Homebrew (mostraría un diálogo y abriría la Terminal).
 - **Descargas reales:**
   - YouTube, con las cookies correctas elegidas solas, en H.264 + AAC verificado con `ffprobe`.
-  - Instagram, X y Twitch: los descargó el usuario.
-- **Cookies:** del export general solo pasan las de cada sitio: `.instagram.com` (20), `.youtube.com` (79), `x.com` + `twitter.com` (35) y `.twitch.tv` (26).
+  - Instagram, X y Twitch, también con cookies.
+- **Cookies:** de un export general solo pasan las de los dominios de cada sitio (`.instagram.com`, `.youtube.com`, `x.com` + `twitter.com`, `.twitch.tv`).
 - **Ícono:**
   - Una descarga: el número es el porcentaje con `%` en superíndice (`36% → 37% → 38%`).
   - Dos en cola: muestra `2`, y vuelve al porcentaje al quedar una.

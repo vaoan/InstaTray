@@ -7,8 +7,23 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $app = Join-Path $env:LOCALAPPDATA 'InstaTray'
 $venv = Join-Path $app 'tools'
 
+# Messages in the app's language (Ajustes → Idioma): the "language" setting, else Windows' display language
+# (Spanish only if it is Spanish), like Lang.Choice in the app.
+function Lang-English {
+    $f = Join-Path $env:APPDATA 'InstaTray\settings.properties'
+    if (Test-Path $f) {
+        $line = Get-Content $f -ErrorAction SilentlyContinue | Where-Object { $_ -match '^language=' } | Select-Object -Last 1
+        if ($line -match '^language=en') { return $true }
+        if ($line -match '^language=es') { return $false }
+    }
+    return (Get-UICulture).TwoLetterISOLanguageName -ne 'es'
+}
+$english = Lang-English
+# Msg 'español' 'English'
+function Msg($es, $en) { if ($english) { $en } else { $es } }
+
 function Say($text) { Write-Host "InstaTray: $text" }
-function Quit($code) { Read-Host 'Pulsa Enter para cerrar' | Out-Null; exit $code }
+function Quit($code) { Read-Host (Msg 'Pulsa Enter para cerrar' 'Press Enter to close') | Out-Null; exit $code }
 
 function Winget-Install($id) {
     winget install --id $id -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements | Out-Host
@@ -19,7 +34,8 @@ function Refresh-Path {
 }
 
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    Say 'Falta winget ("Instalador de aplicación" de Microsoft Store). Instálalo y vuelve a abrir este instalador.'
+    Say (Msg 'Falta winget ("Instalador de aplicación" de Microsoft Store). Instálalo y vuelve a abrir este instalador.' `
+        'winget is missing ("App Installer" from the Microsoft Store). Install it and open this installer again.')
     Start-Process 'ms-windows-store://pdp/?productid=9NBLGGH4NNS1'
     Quit 1
 }
@@ -46,12 +62,16 @@ function Find-Javaw {
 }
 $javaw = Find-Javaw
 if (-not $javaw) {
-    Say 'Instalando Java…'
+    Say (Msg 'Instalando Java…' 'Installing Java…')
     Winget-Install 'EclipseAdoptium.Temurin.21.JRE'
     Refresh-Path
     $javaw = Find-Javaw
 }
-if (-not $javaw) { Say 'No se pudo instalar Java 21. Instálalo a mano (Temurin 21) y vuelve a abrir este instalador.'; Quit 1 }
+if (-not $javaw) {
+    Say (Msg 'No se pudo instalar Java 21. Instálalo a mano (Temurin 21) y vuelve a abrir este instalador.' `
+        'Could not install Java 21. Install it by hand (Temurin 21) and open this installer again.')
+    Quit 1
+}
 
 # ---- Python (solo para crear el entorno de yt-dlp y gallery-dl; nunca el atajo de Microsoft Store)
 function Find-Python {
@@ -67,27 +87,31 @@ $venvPython = Join-Path $venv 'Scripts\python.exe'
 if (-not (Test-Path $venvPython)) {
     $python = Find-Python
     if (-not $python) {
-        Say 'Instalando Python…'
+        Say (Msg 'Instalando Python…' 'Installing Python…')
         Winget-Install 'Python.Python.3.12'
         $python = Find-Python
     }
-    if (-not $python) { Say 'No se pudo instalar Python 3. Instálalo a mano y vuelve a abrir este instalador.'; Quit 1 }
-    Say 'Preparando yt-dlp y gallery-dl…'
+    if (-not $python) {
+        Say (Msg 'No se pudo instalar Python 3. Instálalo a mano y vuelve a abrir este instalador.' `
+            'Could not install Python 3. Install it by hand and open this installer again.')
+        Quit 1
+    }
+    Say (Msg 'Preparando yt-dlp y gallery-dl…' 'Setting up yt-dlp and gallery-dl…')
     New-Item -ItemType Directory -Force -Path $app | Out-Null
     & $python -m venv $venv
 }
-Say 'Instalando o actualizando yt-dlp y gallery-dl…'
+Say (Msg 'Instalando o actualizando yt-dlp y gallery-dl…' 'Installing or updating yt-dlp and gallery-dl…')
 & $venvPython -m pip install --disable-pip-version-check --quiet --upgrade yt-dlp gallery-dl
 
 # ---- ffmpeg y deno
 $links = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
 foreach ($tool in @(@{ name = 'ffmpeg'; id = 'Gyan.FFmpeg' }, @{ name = 'deno'; id = 'DenoLand.Deno' })) {
     $there = (Get-Command $tool.name -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $links "$($tool.name).exe"))
-    if (-not $there) { Say "Instalando $($tool.name)…"; Winget-Install $tool.id }
+    if (-not $there) { Say (Msg "Instalando $($tool.name)…" "Installing $($tool.name)…"); Winget-Install $tool.id }
 }
 
 # ---- la app y su acceso directo
-Say 'Copiando InstaTray…'
+Say (Msg 'Copiando InstaTray…' 'Copying InstaTray…')
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 Get-CimInstance Win32_Process -Filter "Name = 'javaw.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like '*InstaTray.jar*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
@@ -102,15 +126,16 @@ function Make-Shortcut($path) {
     $s.Arguments = "-jar `"$jar`""
     $s.WorkingDirectory = $app
     $s.IconLocation = Join-Path $app 'InstaTray.ico'
-    $s.Description = 'InstaTray: descarga los videos que copias'
+    $s.Description = Msg 'InstaTray: descarga los videos que copias' 'InstaTray: downloads the videos you copy'
     $s.Save()
 }
 $programs = [Environment]::GetFolderPath('Programs')
 Make-Shortcut (Join-Path $programs 'InstaTray.lnk')
 $startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'InstaTray.lnk'
-$answer = Read-Host '¿Abrir InstaTray al iniciar Windows? (s/n)'
+$answer = Read-Host (Msg '¿Abrir InstaTray al iniciar Windows? (s/n)' 'Open InstaTray when Windows starts? (y/n)')
 if ($answer -match '^[sSyY]') { Make-Shortcut $startup } elseif (Test-Path $startup) { Remove-Item $startup }
 
-Say 'Listo. InstaTray queda en el área de notificación (junto al reloj; si no lo ves, mira en la flecha ^).'
+Say (Msg 'Listo. InstaTray queda en el área de notificación (junto al reloj; si no lo ves, mira en la flecha ^).' `
+    'Done. InstaTray is in the notification area (next to the clock; if you do not see it, look under the ^ arrow).')
 Start-Process $javaw -ArgumentList "-jar `"$jar`"" -WorkingDirectory $app
 Start-Sleep -Seconds 2

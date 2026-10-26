@@ -35,7 +35,7 @@ final class DownloadsWindow {
     private final Runnable openSettings;
     private final JFrame frame = new JFrame("InstaTray");
     private final Rows rows = new Rows();
-    private final PlaceholderField field = new PlaceholderField("Pega un enlace…");
+    private final PlaceholderField field = new PlaceholderField(Lang.key("Pega un enlace…"));
     private final JLabel fieldMessage = new JLabel(" ");
     private final JPanel chips = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final Map<JobView.Filter, Chip> chipFor = new EnumMap<>(JobView.Filter.class);
@@ -90,6 +90,7 @@ final class DownloadsWindow {
             if (++ticks % 6 == 0) CompletableFuture.runAsync(Theme::refresh); // dark mode switched while open
         }).start();
         Theme.addListener(this::applyTheme);
+        Lang.addListener(this::applyLanguage);
 
         // progress bars shimmer: repaint only the downloading rows; reload() runs it only while one shows
         animation = new Timer(40, e -> {
@@ -104,6 +105,20 @@ final class DownloadsWindow {
                 }
             }
         });
+    }
+
+    /** Painted texts translate themselves at paint time; labels set from code are recomputed. */
+    private void applyLanguage() {
+        Lang.relabel(frame.getContentPane());
+        footerKey = "";
+        watchLabel.setText(""); // forces reload() to set and re-measure it
+        shownOutput = "";
+        shownOutputFor = null;
+        fieldMessage.setVisible(false); // it was written in the other language
+        reload();
+        chips.revalidate();
+        frame.getContentPane().revalidate();
+        frame.getContentPane().repaint();
     }
 
     JFrame frame() {
@@ -145,8 +160,8 @@ final class DownloadsWindow {
         toolbar.add(field, BorderLayout.CENTER);
         JPanel buttons = panel(new GridLayout(1, 2, JobView.GAP, 0));
         buttons.setOpaque(false);
-        for (PillButton pb : new PillButton[]{new PillButton("Descargar", null, true, this::submit),
-                new PillButton("Ajustes", Glyph.GEAR, false, openSettings)}) {
+        for (PillButton pb : new PillButton[]{new PillButton(Lang.key("Descargar"), null, true, this::submit),
+                new PillButton(Lang.key("Ajustes"), Glyph.GEAR, false, openSettings)}) {
             pb.setPreferredSize(new Dimension(JobView.BUTTON_W, 28));
             buttons.add(pb);
         }
@@ -209,7 +224,7 @@ final class DownloadsWindow {
         scroll.setPreferredSize(new Dimension(100, 150));
         details.add(scroll, BorderLayout.CENTER);
         JPanel bar = panel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        bar.add(new PillButton("Copiar", null, false, () -> host.copyToClipboardSilently(output.getText())));
+        bar.add(new PillButton(Lang.key("Copiar"), null, false, () -> host.copyToClipboardSilently(output.getText())));
         details.add(bar, BorderLayout.SOUTH);
         themed.add(details);
         themed.add(scroll);
@@ -229,7 +244,7 @@ final class DownloadsWindow {
         };
         link(watchLabel, toggleWatch);
         watchSwitch.onToggle = toggleWatch;
-        watchSwitch.setToolTipText("Vigilar portapapeles");
+        Lang.tip(watchSwitch, "Vigilar portapapeles");
         link(folderLabel, host::openVideosFolder);
         JLabel dot = new JLabel(" · ");
         dot.setFont(SMALL);
@@ -249,7 +264,7 @@ final class DownloadsWindow {
     }
 
     private void rebuildFooterActions() {
-        String key = filter + "/" + host.isPaused() + "/" + details.isVisible();
+        String key = filter + "/" + host.isPaused() + "/" + details.isVisible() + "/" + Lang.isEnglish();
         if (key.equals(footerKey)) return;
         footerKey = key;
         footerRight.removeAll();
@@ -278,7 +293,7 @@ final class DownloadsWindow {
         if (text.isEmpty()) return;
         field.setText("");
         host.submit(text, () -> {
-            showFieldMessage("Ese enlace no tiene un video compatible");
+            showFieldMessage(Lang.t("Ese enlace no tiene un video compatible"));
             if (field.getText().isEmpty()) field.setText(text); // let the user fix it
         });
     }
@@ -304,7 +319,7 @@ final class DownloadsWindow {
         }
         boolean watching = host.isWatching();
         watchSwitch.setOn(watching);
-        String watchText = watching ? "Vigilando portapapeles" : "Portapapeles en pausa";
+        String watchText = watching ? Lang.t("Vigilando portapapeles") : Lang.t("Portapapeles en pausa");
         if (!watchText.equals(watchLabel.getText())) { // size changes re-layout the window: only when the text does
             watchLabel.setText(watchText);
             watchLabel.setMinimumSize(null);
@@ -328,13 +343,13 @@ final class DownloadsWindow {
         switch (a) {
             case PAUSE -> host.setPaused(!host.isPaused());
             case CANCEL_ALL -> {
-                if (confirm("¿Cancelar la descarga actual y quitar las que esperan?")) host.cancelAll();
+                if (confirm(Lang.t("¿Cancelar la descarga actual y quitar las que esperan?"))) host.cancelAll();
             }
             case RETRY_ALL -> rows.all.stream().filter(j -> JobView.matches(JobView.Filter.FAILED, j)).forEach(host::retry);
             case DELETE_ALL_FAILED -> removeAll(j -> JobView.matches(JobView.Filter.FAILED, j),
-                    "¿Quitar de la lista las %d descargas fallidas?");
+                    Lang.key("¿Quitar de la lista las %d descargas fallidas?"));
             case REMOVE_ALL_DONE -> removeAll(j -> j.status == Job.Status.DONE,
-                    "¿Quitar de la lista las %d descargas listas? Los videos se quedan en tu carpeta.");
+                    Lang.key("¿Quitar de la lista las %d descargas listas? Los videos se quedan en tu carpeta."));
             case DETAILS -> {
                 details.setVisible(!details.isVisible());
                 host.setDetailsOpen(details.isVisible());
@@ -344,15 +359,18 @@ final class DownloadsWindow {
         reload();
     }
 
+    /** question: Spanish key with one %d. */
     private void removeAll(Predicate<Job> which, String question) {
         long n = rows.all.stream().filter(which).count();
         if (n == 0) return;
-        if (confirm(String.format(question, n))) host.removeFinished(which);
+        if (confirm(Lang.f(question, n))) host.removeFinished(which);
     }
 
+    /** Yes/No in the app's language (JOptionPane's own buttons follow the system's). */
     private boolean confirm(String question) {
-        return JOptionPane.showConfirmDialog(frame, question, "InstaTray", JOptionPane.YES_NO_OPTION)
-                == JOptionPane.YES_OPTION;
+        Object[] options = {Lang.t("Sí"), Lang.t("No")};
+        return JOptionPane.showOptionDialog(frame, question, "InstaTray", JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0;
     }
 
     private void run(JobView.Action a, Job j) {
@@ -365,7 +383,7 @@ final class DownloadsWindow {
                 if (Files.exists(Paths.get(j.files.get(0)))) {
                     host.openUrl(j.files.get(0));
                 } else {
-                    showFieldMessage("No encuentro el archivo; quizá lo moviste o lo borraste.");
+                    showFieldMessage(Lang.t("No encuentro el archivo; quizá lo moviste o lo borraste."));
                     host.openVideosFolder();
                 }
             }
@@ -382,14 +400,15 @@ final class DownloadsWindow {
     private void showMenu(Job j, MouseEvent e) {
         JPopupMenu menu = new JPopupMenu();
         for (JobView.Action a : new JobView.Action[]{JobView.primary(j), JobView.secondary(j), JobView.dismiss(j)}) {
-            if (a != null) menu.add(item(a.label, () -> run(a, j)));
+            if (a != null) menu.add(item(a.text(), () -> run(a, j)));
         }
         menu.addSeparator();
-        menu.add(item("Copiar enlace", () -> host.copyToClipboardSilently(j.link.url())));
-        menu.add(item("Detalles", () -> {
+        menu.add(item(Lang.t("Copiar enlace"), () -> host.copyToClipboardSilently(j.link.url())));
+        menu.add(item(Lang.t("Detalles"), () -> {
             rows.list.setSelectedValue(j, false);
             if (!details.isVisible()) footerAction(JobView.FooterAction.DETAILS);
         }));
+        styleMenu(menu);
         menu.show(e.getComponent(), e.getX(), e.getY());
     }
 
@@ -398,13 +417,13 @@ final class DownloadsWindow {
         Job first = rows.list.getSelectedValue();
         String text;
         if (first == null) {
-            text = "Selecciona una descarga para ver qué pasó.";
+            text = Lang.t("Selecciona una descarga para ver qué pasó.");
         } else {
             String out = first.outputText();
             text = first.link.url() + "\n" + first.statusText()
-                    + (first.message.isEmpty() ? "" : " — " + first.message)
-                    + (first.files.isEmpty() ? "" : "\nArchivo: " + String.join(", ", first.files))
-                    + "\n\n" + (out.isEmpty() ? "(sin salida todavía, o de una sesión anterior)" : out);
+                    + (first.message.isEmpty() ? "" : " — " + Lang.t(first.message))
+                    + (first.files.isEmpty() ? "" : "\n" + Lang.f("Archivo: %s", String.join(", ", first.files)))
+                    + "\n\n" + (out.isEmpty() ? Lang.t("(sin salida todavía, o de una sesión anterior)") : out);
         }
         if (first != shownOutputFor || !text.equals(shownOutput)) {
             boolean follow = first == shownOutputFor; // keep scrolled to the end while it streams
@@ -460,6 +479,75 @@ final class DownloadsWindow {
             }
         };
     }
+
+    /**
+     * Pop-up menus in the window's palette. The Mac look paints a hovered item's text grey on the blue highlight
+     * (barely readable, user noticed), so the items use the basic UI with the accent and its text colour.
+     */
+    static void styleMenu(JPopupMenu menu) {
+        Theme.Palette p = Theme.current();
+        menu.setBackground(p.row());
+        menu.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(p.buttonBorder()),
+                new EmptyBorder(4, 0, 4, 0)));
+        for (Component c : menu.getComponents()) {
+            if (c instanceof JMenuItem mi) {
+                mi.setUI(mi instanceof JCheckBoxMenuItem ? new javax.swing.plaf.basic.BasicCheckBoxMenuItemUI() {
+                    @Override
+                    protected void installDefaults() {
+                        super.installDefaults();
+                        selectionBackground = p.accent();
+                        selectionForeground = p.accentText();
+                        checkIcon = CHECK; // the Mac one is drawn whether the item is checked or not
+                    }
+                } : new javax.swing.plaf.basic.BasicMenuItemUI() {
+                    @Override
+                    protected void installDefaults() {
+                        super.installDefaults();
+                        selectionBackground = p.accent();
+                        selectionForeground = p.accentText();
+                        checkIcon = null;
+                    }
+                });
+                mi.setFont(BASE);
+                mi.setOpaque(true);
+                mi.setBackground(p.row());
+                mi.setForeground(p.text());
+                mi.setBorder(new EmptyBorder(3, 6, 3, 14));
+            } else if (c instanceof JSeparator s) {
+                s.setBackground(p.row());
+                s.setForeground(p.separator());
+            }
+        }
+    }
+
+    /** ✓ in the item's text colour (white on the highlight), only when checked. */
+    private static final Icon CHECK = new Icon() {
+        @Override
+        public void paintIcon(Component c, Graphics g0, int x, int y) {
+            if (!(c instanceof AbstractButton b) || !b.isSelected()) return;
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Theme.Palette p = Theme.current();
+            g.setColor(b.getModel().isArmed() ? p.accentText() : p.text());
+            g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            Path2D v = new Path2D.Double();
+            v.moveTo(x + 2, y + 7);
+            v.lineTo(x + 5, y + 10);
+            v.lineTo(x + 11, y + 3);
+            g.draw(v);
+            g.dispose();
+        }
+
+        @Override
+        public int getIconWidth() {
+            return 14;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return 13;
+        }
+    };
 
     private static JMenuItem item(String label, Runnable r) {
         JMenuItem i = new JMenuItem(label);
@@ -560,7 +648,7 @@ final class DownloadsWindow {
                 r.hoverButton = button;
                 rows.list.setCursor(button >= 0 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 // the last column is icon-only: its tooltip names the action
-                rows.list.setToolTipText(button == 2 ? JobView.dismiss(rows.model.get(row)).label : null);
+                rows.list.setToolTipText(button == 2 ? JobView.dismiss(rows.model.get(row)).text() : null);
                 rows.list.repaint();
             }
         }
@@ -720,7 +808,7 @@ final class DownloadsWindow {
         g.setFont(primary ? SMALL.deriveFont(Font.BOLD) : SMALL);
         FontMetrics fm = g.getFontMetrics();
         int iconW = glyph == null ? 0 : 12 + 6;
-        String text = ellipsize(label, fm, r.width - 16 - iconW);
+        String text = ellipsize(Lang.t(label), fm, r.width - 16 - iconW); // label = Spanish key
         int total = iconW + fm.stringWidth(text);
         int x = r.x + (r.width - total) / 2;
         int y = r.y + (r.height - 2 + fm.getAscent() - fm.getDescent()) / 2; // the pill sits 2px above its shadow
@@ -830,6 +918,7 @@ final class DownloadsWindow {
         private final boolean primary;
         private boolean hover;
 
+        /** label: the Spanish text, painted in the current language (pass it through Lang.key). */
         PillButton(String label, Glyph glyph, boolean primary, Runnable action) {
             this.label = label;
             this.glyph = glyph;
@@ -866,7 +955,7 @@ final class DownloadsWindow {
         public Dimension getPreferredSize() {
             if (isPreferredSizeSet()) return super.getPreferredSize(); // fixed to a row column's width
             FontMetrics fm = getFontMetrics(primary ? SMALL.deriveFont(Font.BOLD) : SMALL);
-            return new Dimension(fm.stringWidth(label) + 28 + (glyph == null ? 0 : 18), 28);
+            return new Dimension(fm.stringWidth(Lang.t(label)) + 28 + (glyph == null ? 0 : 18), 28);
         }
 
         @Override
@@ -1014,7 +1103,7 @@ final class DownloadsWindow {
         }
 
         private String text() {
-            return f.label + "  " + count;
+            return f.text() + "  " + count;
         }
 
         @Override
@@ -1034,16 +1123,16 @@ final class DownloadsWindow {
             int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
             Color ink = on ? p.chipOnText() : p.text();
             g.setColor(ink);
-            g.drawString(f.label, 11, y);
+            g.drawString(f.text(), 11, y);
             g.setColor(on ? mix(ink, p.chipOn(), 0.4) : p.secondary());
-            g.drawString(String.valueOf(count), 11 + fm.stringWidth(f.label + "  "), y);
+            g.drawString(String.valueOf(count), 11 + fm.stringWidth(f.text() + "  "), y);
             g.dispose();
         }
     }
 
     /** Text field with a grey hint while empty. */
     private static final class PlaceholderField extends JTextField {
-        private final String hint;
+        private final String hint; // Spanish key
 
         PlaceholderField(String hint) {
             this.hint = hint;
@@ -1062,14 +1151,14 @@ final class DownloadsWindow {
             g.setColor(Theme.current().secondary());
             g.setFont(getFont());
             Insets in = getInsets();
-            g.drawString(hint, in.left, in.top + g.getFontMetrics().getAscent());
+            g.drawString(Lang.t(hint), in.left, in.top + g.getFontMetrics().getAscent());
             g.dispose();
         }
     }
 
     // ---------------------------------------------------------------- --preview
 
-    /** java DownloadsWindow --preview DIR: PNGs of the window in sample states, light and dark. */
+    /** java DownloadsWindow --preview DIR: PNGs of the window in sample states, light (Spanish) and dark (English). */
     public static void main(String[] args) throws Exception {
         if (args.length < 2 || !args[0].equals("--preview")) {
             System.err.println("usage: DownloadsWindow --preview DIR");
@@ -1090,6 +1179,7 @@ final class DownloadsWindow {
                 PreviewHost narrow = new PreviewHost(true);
                 narrow.folder = "/Volumes/Disco externo/Mis videos descargados/<red social>";
                 render(narrow, false, JobView.Filter.FAILED, false, 560, new File(dir, "downloads-narrow-failed-light.png"));
+                render(narrow, true, JobView.Filter.ALL, false, 560, new File(dir, "downloads-narrow-dark.png"));
                 PreviewHost empty = new PreviewHost(false);
                 empty.watching = false; // shows the switch off
                 render(empty, false, JobView.Filter.ALL, false, new File(dir, "downloads-empty-light.png"));
@@ -1106,6 +1196,7 @@ final class DownloadsWindow {
 
     private static void render(PreviewHost h, boolean dark, JobView.Filter f, boolean details, int width, File out) throws Exception {
         Theme.force(dark);
+        Lang.force(dark); // dark previews are in English, like SettingsDialog's: both languages get looked at
         h.details = details;
         DownloadsWindow w = new DownloadsWindow(h, () -> {});
         w.setFilter(f);
@@ -1195,6 +1286,8 @@ final class DownloadsWindow {
         @Override public void setEmbeds(boolean on) {}
         @Override public boolean notifications() { return true; }
         @Override public void setNotifications(boolean on) {}
+        @Override public Lang.Choice language() { return Lang.Choice.SYSTEM; }
+        @Override public void setLanguage(Lang.Choice choice) {}
         @Override public Theme.Mode appearance() { return Theme.Mode.SYSTEM; }
         @Override public void setAppearance(Theme.Mode mode) {}
         @Override public int maxRetries() { return 2; }

@@ -15,23 +15,33 @@ final class JobView {
     }
 
     enum Filter {
-        ALL("Todas"), DOWNLOADING("Descargando"), QUEUED("En cola"), DONE("Listas"), FAILED("Fallidas");
+        ALL(Lang.key("Todas")), DOWNLOADING(Lang.key("Descargando")), QUEUED(Lang.key("En cola")), DONE(Lang.key("Listas")),
+        FAILED(Lang.key("Fallidas"));
 
-        final String label;
+        final String label; // Spanish key
 
         Filter(String label) {
             this.label = label;
         }
+
+        String text() {
+            return Lang.t(label);
+        }
     }
 
     enum Action {
-        CANCEL("Cancelar"), TOP("Poner primero"), REMOVE("Quitar"), PLAY("Ver"), REVEAL(Platform.revealLabel(Platform.WINDOWS)),
-        OPEN_PAGE("Abrir página"), RETRY("Reintentar"), DELETE("Borrar de la lista");
+        CANCEL(Lang.key("Cancelar")), TOP(Lang.key("Poner primero")), REMOVE(Lang.key("Quitar")), PLAY(Lang.key("Ver")),
+        REVEAL(Platform.revealLabel(Platform.WINDOWS)), OPEN_PAGE(Lang.key("Abrir página")), RETRY(Lang.key("Reintentar")),
+        DELETE(Lang.key("Borrar de la lista"));
 
-        final String label;
+        final String label; // Spanish key: paintButton translates it
 
         Action(String label) {
             this.label = label;
+        }
+
+        String text() {
+            return Lang.t(label);
         }
     }
 
@@ -94,26 +104,29 @@ final class JobView {
         return switch (j.status) {
             case DOWNLOADING -> {
                 StringBuilder sb = new StringBuilder(site);
-                sb.append(" · ").append(j.percent >= 0 ? j.percent + " %" : "preparando…");
+                sb.append(" · ").append(j.percent >= 0 ? j.percent + (Lang.isEnglish() ? "%" : " %") : Lang.t("preparando…"));
                 if (!j.speed.isBlank()) sb.append(" · ").append(j.speed);
-                if (!j.eta.isBlank()) sb.append(" · quedan ").append(j.eta);
+                if (!j.eta.isBlank()) sb.append(" · ").append(Lang.f("quedan %s", j.eta));
                 yield sb.toString();
             }
             case QUEUED -> j.notBefore > nowMs
-                    ? site + " · reintento en " + Math.max(1, (j.notBefore - nowMs) / 1000) + " s"
-                    : site + " · en cola (" + queuePosition + ".º)";
-            case DONE -> "✓ Listo · " + ago(j.createdAt, nowMs) + (j.bytes >= 0 ? " · " + InstaTray.formatBytes(j.bytes) : "");
-            case FAILED -> "✕ " + (j.message.isBlank() ? "Falló" : j.message);
-            case CANCELLED -> "Cancelado";
+                    ? site + " · " + Lang.f("reintento en %d s", Math.max(1, (j.notBefore - nowMs) / 1000))
+                    : site + " · " + Lang.f("en cola (%s)", Lang.ordinal(queuePosition));
+            case DONE -> "✓ " + Lang.t("Listo") + " · " + ago(j.createdAt, nowMs)
+                    + (j.bytes >= 0 ? " · " + InstaTray.formatBytes(j.bytes) : "");
+            // the reason was saved in the language of the moment; t() converts it if it is a whole table entry
+            case FAILED -> "✕ " + (j.message.isBlank() ? Lang.t("Falló") : Lang.t(j.message));
+            case CANCELLED -> Lang.t("Cancelado");
         };
     }
 
     private static String ago(long then, long now) {
         long min = (now - then) / 60_000;
-        if (min < 1) return "ahora";
-        if (min < 60) return "hace " + min + " min";
-        if (min < 24 * 60) return "hace " + min / 60 + " h";
-        if (min < 48 * 60) return "ayer";
+        if (min < 1) return Lang.t("ahora");
+        if (min < 60) return Lang.f("hace %d min", min);
+        if (min < 24 * 60) return Lang.f("hace %d h", min / 60);
+        if (min < 48 * 60) return Lang.t("ayer");
+        if (Lang.isEnglish()) return new SimpleDateFormat("MMM d", java.util.Locale.ENGLISH).format(new Date(then));
         return new SimpleDateFormat("dd/MM").format(new Date(then));
     }
 
@@ -143,22 +156,22 @@ final class JobView {
 
     static String footerLabel(FooterAction a, boolean paused, boolean detailsOpen) {
         return switch (a) {
-            case PAUSE -> paused ? "▶ Reanudar" : "⏸ Pausar";
-            case CANCEL_ALL -> "✕ Cancelar todas";
-            case RETRY_ALL -> "↻ Reintentar todas";
-            case DELETE_ALL_FAILED -> "🗑 Borrar todas";
-            case REMOVE_ALL_DONE -> "🗑 Quitar todas de la lista";
-            case DETAILS -> detailsOpen ? "Detalles ▾" : "Detalles ▸";
+            case PAUSE -> paused ? "▶ " + Lang.t("Reanudar") : "⏸ " + Lang.t("Pausar");
+            case CANCEL_ALL -> "✕ " + Lang.t("Cancelar todas");
+            case RETRY_ALL -> "↻ " + Lang.t("Reintentar todas");
+            case DELETE_ALL_FAILED -> "🗑 " + Lang.t("Borrar todas");
+            case REMOVE_ALL_DONE -> "🗑 " + Lang.t("Quitar todas de la lista");
+            case DETAILS -> Lang.t("Detalles") + (detailsOpen ? " ▾" : " ▸");
         };
     }
 
     static String emptyText(Filter f) {
         return switch (f) {
-            case ALL -> "Copia el enlace de un video y aparecerá aquí.";
-            case DOWNLOADING -> "No se está descargando nada.";
-            case QUEUED -> "No hay nada en cola.";
-            case DONE -> "Todavía no hay descargas listas.";
-            case FAILED -> "No hay descargas fallidas.";
+            case ALL -> Lang.t("Copia el enlace de un video y aparecerá aquí.");
+            case DOWNLOADING -> Lang.t("No se está descargando nada.");
+            case QUEUED -> Lang.t("No hay nada en cola.");
+            case DONE -> Lang.t("Todavía no hay descargas listas.");
+            case FAILED -> Lang.t("No hay descargas fallidas.");
         };
     }
 

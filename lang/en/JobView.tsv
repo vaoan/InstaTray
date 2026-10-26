@@ -1,0 +1,36 @@
+# English for JobView.java (filters, row buttons, status lines, footer, empty list); also Job.java's status names
+Todas	All
+Descargando	Downloading
+En cola	Queued
+Listas	Done
+Fallidas	Failed
+Cancelar	Cancel
+Poner primero	Move to top
+Quitar	Remove
+Ver	Play
+Abrir página	Open page
+Reintentar	Retry
+Borrar de la lista	Delete from list
+preparando…	preparing…
+quedan %s	%s left
+reintento en %d s	retry in %d s
+en cola (%s)	queued (%s)
+Listo	Done
+Falló	Failed
+Cancelado	Cancelled
+ahora	just now
+hace %d min	%d min ago
+hace %d h	%d h ago
+ayer	yesterday
+Reanudar	Resume
+Pausar	Pause
+Cancelar todas	Cancel all
+Reintentar todas	Retry all
+Borrar todas	Delete all
+Quitar todas de la lista	Remove all from list
+Detalles	Details
+Copia el enlace de un video y aparecerá aquí.	Copy a video link and it will show up here.
+No se está descargando nada.	Nothing is downloading.
+No hay nada en cola.	Nothing in the queue.
+Todavía no hay descargas listas.	No finished downloads yet.
+No hay descargas fallidas.	No failed downloads.

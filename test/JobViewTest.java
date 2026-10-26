@@ -116,6 +116,20 @@ public class JobViewTest {
         T.eq("barNoneWhenQueued", JobView.Bar.NONE, JobView.barMode(job(Job.Status.QUEUED)));
         T.eq("barNoneWhenDone", JobView.Bar.NONE, JobView.barMode(done));
 
+        // English: labels, ordinal, relative time (Lang is Spanish until forced)
+        Lang.force(true);
+        T.eq("enActionLabel", "Move to top", JobView.Action.TOP.text());
+        T.eq("enFilterLabel", "Failed", JobView.Filter.FAILED.text());
+        Job waitingEn = job(Job.Status.QUEUED);
+        T.check("enQueuedOrdinal", JobView.subtitle(waitingEn, 2, System.currentTimeMillis()).endsWith("queued (2nd)"),
+                JobView.subtitle(waitingEn, 2, System.currentTimeMillis()));
+        Job doneEn = job(Job.Status.DONE);
+        T.check("enAgo", JobView.subtitle(doneEn, 0, doneEn.createdAt + 5 * 60_000).contains("Done · 5 min ago"),
+                JobView.subtitle(doneEn, 0, doneEn.createdAt + 5 * 60_000));
+        T.eq("enFooter", "Details ▸", JobView.footerLabel(JobView.FooterAction.DETAILS, false, false));
+        Lang.force(false);
+        T.eq("esAgain", "Poner primero", JobView.Action.TOP.text());
+
         T.check("buttonBoundsIgnoreText", java.util.Arrays.equals(JobView.buttonBounds(700, 52), JobView.buttonBounds(700, 52)), "");
         T.done();
     }

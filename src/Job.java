@@ -6,9 +6,10 @@ import java.util.List;
 final class Job {
 
     enum Status {
-        QUEUED("En cola"), DOWNLOADING("Descargando"), DONE("Listo"), FAILED("Falló"), CANCELLED("Cancelado");
+        QUEUED(Lang.key("En cola")), DOWNLOADING(Lang.key("Descargando")), DONE(Lang.key("Listo")), FAILED(Lang.key("Falló")),
+        CANCELLED(Lang.key("Cancelado"));
 
-        final String label;
+        final String label; // Spanish key; jobs.tsv saves name(), never this
 
         Status(String label) {
             this.label = label;
@@ -64,11 +65,11 @@ final class Job {
     }
 
     String statusText() {
-        if (status == Status.DOWNLOADING && percent >= 0) return status.label + " " + percent + "%";
+        if (status == Status.DOWNLOADING && percent >= 0) return Lang.t(status.label) + " " + percent + "%";
         if (status == Status.QUEUED && notBefore > System.currentTimeMillis()) {
-            return "Reintento en " + Math.max(1, (notBefore - System.currentTimeMillis()) / 1000) + " s";
+            return Lang.f("Reintento en %d s", Math.max(1, (notBefore - System.currentTimeMillis()) / 1000));
         }
-        return status.label;
+        return Lang.t(status.label);
     }
 
     boolean isFinished() {

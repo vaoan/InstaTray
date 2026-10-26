@@ -1,0 +1,17 @@
+# English for DownloadsWindow.java
+Descargar	Download
+Copiar	Copy
+Pega un enlace…	Paste a link…
+Ese enlace no tiene un video compatible	That link has no supported video
+Vigilando portapapeles	Watching clipboard
+Portapapeles en pausa	Clipboard paused
+¿Cancelar la descarga actual y quitar las que esperan?	Cancel the current download and remove the waiting ones?
+¿Quitar de la lista las %d descargas fallidas?	Remove the %d failed downloads from the list?
+¿Quitar de la lista las %d descargas listas? Los videos se quedan en tu carpeta.	Remove the %d finished downloads from the list? The videos stay in your folder.
+Sí	Yes
+No	No
+No encuentro el archivo; quizá lo moviste o lo borraste.	Can't find the file; maybe you moved or deleted it.
+Copiar enlace	Copy link
+Selecciona una descarga para ver qué pasó.	Select a download to see what happened.
+Archivo: %s	File: %s
+(sin salida todavía, o de una sesión anterior)	(no output yet, or from an earlier session)

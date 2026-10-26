@@ -1,0 +1,78 @@
+# English for InstaTray.java (tray menu, status line, tooltip, notifications, failure reasons, installs): spanish<TAB>english
+Otros sitios	Other sites
+Video embebido	Embedded video
+Listo — copia un enlace de video	Ready — copy a video link
+Cookies: buscando en Descargas…	Cookies: looking in Downloads…
+Descargar enlace copiado ahora	Download copied link now
+Cola e historial…	Queue and history…
+Pausar cola	Pause queue
+Mostrar ventana	Show window
+Abrir carpeta de videos	Open videos folder
+Ver registro	Show log
+Salir	Quit
+En pausa	Paused
+<red social>	<site>
+Elige la carpeta para los videos	Choose the folder for videos
+Documentos	Documents
+No hay un enlace de video compatible copiado	No supported video link copied
+InstaTray — cola en pausa, 1 pendiente	InstaTray — queue paused, 1 waiting
+InstaTray — cola en pausa, %d pendientes	InstaTray — queue paused, %d waiting
+InstaTray — sin descargas	InstaTray — no downloads
+InstaTray — %d en cola	InstaTray — %d queued
++%d en cola	+%d queued
+reintento %d	retry %d
+Cookies: ninguna en Descargas	Cookies: none in Downloads
+Cookies: %s (%d de %d sitios)	Cookies: %s (%d of %d sites)
+Ya descargado: %s %s	Already downloaded: %s %s
+En cola: %s %s	Queued: %s %s
+Cola en pausa (lo que se está bajando termina)	Queue paused (the current download finishes)
+convertido a mp4: %s	converted to mp4: %s
+no se pudo convertir %s: %s	could not convert %s: %s
+gallery-dl todavía no está instalado; vuelve a intentarlo en un minuto	gallery-dl is not installed yet; try again in a minute
+InstaTray: conectar Pixiv (solo una vez)	InstaTray: connect Pixiv (one time only)
+InstaTray - conectar Pixiv	InstaTray - connect Pixiv
+Falta %s y no se pudo instalar (mira el registro)	%s is missing and could not be installed (see the log)
+Descargando %s…	Downloading %s…
+Descargando %s… %d%%	Downloading %s… %d%%
+Cancelado: %s	Cancelled: %s
+%d videos en %s	%d videos in %s
+Guardado en %s	Saved to %s
+Listo: %s	Done: %s
+Ese post no tiene video ni animación (solo imágenes)	That post has no video or animation (images only)
+Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta	Pixiv needs your account connected (one time only): follow the steps in Terminal and retry
+%s pide sesión: exporta cookies nuevas de %s a Descargas	%s needs you signed in: export fresh cookies from %s to Downloads
+El sitio bloquea las descargas automáticas (Cloudflare)	The site blocks automated downloads (Cloudflare)
+El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»	The site doesn't allow downloading this video outside its page (403): use “Open page”
+No se encontró ningún video en la página	No video found on the page
+No existe, se borró o es privado	It doesn't exist, was deleted or is private
+Es una transmisión en vivo: no se graba	It's a live stream: it isn't recorded
+Ese post no tiene video	That post has no video
+Falló (%s). Reintento %d/%d en %s	Failed (%s). Retry %d/%d in %s
+reintento automático %d/%d en %d s	automatic retry %d/%d in %d s
+Reintentará %s en %d s	Will retry %s in %d s
+%s (tras 1 reintento)	%s (after 1 retry)
+%s (tras %d reintentos)	%s (after %d retries)
+Falló %s — mira Fallidas en la ventana	%s failed — see Failed in the window
+No se pudo descargar %s	Could not download %s
+%s — abre la ventana (Fallidas) para ver qué pasó o reintentar	%s — open the window (Failed) to see what happened or retry
+Encontrado: %s	Found: %s
+tamaño desconocido	unknown size
+HLS (fragmentos .ts/.m4s)	HLS (.ts/.m4s fragments)
+DASH (fragmentos)	DASH (fragments)
+archivo directo por HTTP	direct file over HTTP
+Encontrado por %s: formato %s, %s, %s, %s\n  origen: %s	Found by %s: format %s, %s, %s, %s\n  source: %s
+resolución desconocida	unknown resolution
+Instalando Python… (la cola espera)	Installing Python… (the queue waits)
+Preparando yt-dlp y gallery-dl…	Preparing yt-dlp and gallery-dl…
+Actualizando %s… (la cola espera)	Updating %s… (the queue waits)
+Instalando %s… (la cola espera)	Installing %s… (the queue waits)
+Instalando %s…	Installing %s…
+No se pudo instalar %s (mira el registro)	Could not install %s (see the log)
+Faltan herramientas — mira el registro	Tools missing — see the log
+Falta %s. Abre InstaTray de nuevo para instalarlo	%s is missing. Open InstaTray again to install it
+Listo: todo instalado y al día ✓	Done: everything installed and up to date ✓
+No se pudo completar. Mira el registro (menú del ícono → Ver registro).	Could not finish. See the log (icon menu → Show log).
+No se instaló nada: hace falta tu contraseña para instalar Homebrew.	Nothing was installed: your password is needed to install Homebrew.
+No se pudo instalar Homebrew desde aquí: se abrió el instalador en Terminal.	Could not install Homebrew from here: the installer opened in Terminal.
+Descargando Homebrew…	Downloading Homebrew…
+Instalando Homebrew… macOS te pedirá tu contraseña.	Installing Homebrew… macOS will ask for your password.

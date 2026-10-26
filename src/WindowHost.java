@@ -90,6 +90,11 @@ interface WindowHost {
     /** Saves the choice and applies it (Theme.setMode). */
     void setAppearance(Theme.Mode mode);
 
+    Lang.Choice language();
+
+    /** Saves the choice and applies it (Lang.set): every window and the tray menu relabel themselves. */
+    void setLanguage(Lang.Choice choice);
+
     boolean detailsOpen();
 
     void setDetailsOpen(boolean open);

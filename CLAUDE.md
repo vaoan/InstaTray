@@ -184,6 +184,20 @@ menu-bar item from the Swift CGWindowList list below (2 px per point). System Ev
 - `findLinks()`, `findCookies()`, `writeSiteCookies()` are package-private static → testable headless with a tiny main.
 - Clean up after tests: test videos in the videos folder, their keys in `downloaded.txt`, their rows in `jobs.tsv`.
 
+## Languages (Spanish + English)
+- `src/Lang.java`: code writes the **Spanish** text through `Lang.t("…")` / `Lang.f("… %s", x)`; the Spanish text is
+  the key of its English line in `lang/en/<Source>.tsv` (one table per source file, `spanish<TAB>english`, same
+  %-placeholders; build.sh/test.sh concatenate them into `en.tsv` on the classpath). `Lang.key("…")` marks a literal
+  translated later where it is shown (enum labels, PillButton labels); `Lang.text/tip/upper/item` remember the key so
+  `Lang.relabel` redoes them when the language changes (live, no restart). `Lang.ordinal(n)`; plurals = two keys.
+- `LangTest` fails on any `Lang.*("…")` literal without an English line, unused lines, or placeholder mismatches.
+  Every new UI string must go through Lang and get its English line.
+- Ajustes → Apariencia → Idioma (setting `language`: system/es/en; Sistema = Spanish only if the system's first
+  preferred language is Spanish). Lang is Spanish until `Lang.set`, so tests and previews are Spanish unless they
+  `Lang.force(true)`; the dark --preview renders are English.
+- Job.message is saved in the language it was created in and shown through `Lang.t`, so exact table entries convert.
+- launcher.sh / setup.command / windows scripts pick the language the same way (settings file, else system).
+
 ## Conventions
-- Code, comments, logs in English; UI strings and README in Spanish.
+- Code, comments, logs in English; UI strings in Spanish + English (Lang); README in Spanish.
 - Preview sheet of icon states: `java -cp <classes> AeroIcon --preview out.png` (copy to `icon-states.png`).

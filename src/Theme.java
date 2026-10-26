@@ -35,9 +35,9 @@ final class Theme {
 
     /** The Ajustes choice "Apariencia" (setting "appearance"). */
     enum Mode {
-        SYSTEM("Sistema"), LIGHT("Claro"), DARK("Oscuro");
+        SYSTEM(Lang.key("Sistema")), LIGHT(Lang.key("Claro")), DARK(Lang.key("Oscuro"));
 
-        final String label;
+        final String label; // Spanish key
 
         Mode(String label) {
             this.label = label;

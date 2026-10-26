@@ -181,7 +181,7 @@ final class Platform {
 
     /** "Mostrar en Finder" / "Mostrar en carpeta" (fits the button column; "…en el Explorador" did not). */
     static String revealLabel(boolean windows) {
-        return windows ? "Mostrar en carpeta" : "Mostrar en Finder";
+        return windows ? Lang.key("Mostrar en carpeta") : Lang.key("Mostrar en Finder"); // Spanish key
     }
 
     // ---------------------------------------------------------------- Windows installs
