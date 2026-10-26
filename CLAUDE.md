@@ -37,7 +37,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/AeroIcon.java` — procedural Liquid Glass squircle icons (name kept from the old orbs); one `Palette` per `Site` with the same enum name (`Site.palette()`).
 - `src/NativeBar.java` + `src/InstaTrayBar.swift` (→ `Contents/Resources/InstaTrayBar`, built by `swiftc` in build.sh):
   the menu-bar item drawn natively (user wanted the least margin: TrayIcon is 45pt wide = 21pt + Java's fixed 12pt
-  each side; native fixed-length 22pt item = 38pt, the 8pt each side is macOS's own item spacing). Line protocol on
+  each side; native variable-length item around the 22pt icon = 38pt, the 8pt each side is macOS's own item spacing). Line protocol on
   stdin (`icon` base64 PNG, `tip`, `menu` snapshot) / stdout (`click <index>`). The AWT PopupMenu stays the model,
   mirrored by a 500 ms EDT timer; clicks fire the AWT item's listeners. Helper missing or dead → AWT TrayIcon.
   Icon size unchanged (user: "el icono que se mantenga como estaba").

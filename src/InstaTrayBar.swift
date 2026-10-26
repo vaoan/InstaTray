@@ -7,9 +7,9 @@
 import AppKit
 
 final class Bar: NSObject {
-    /** Fixed to the icon's width: no padding of its own beyond the spacing macOS keeps between items. */
     static let size: CGFloat = 22
-    let item = NSStatusBar.system.statusItem(withLength: Bar.size)
+    /** Variable length: macOS sizes the item to the image and centres it (a fixed length left it off-centre). */
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let menu = NSMenu()
     private var expected = 0
     private var incoming: [[String]] = []
