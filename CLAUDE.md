@@ -18,7 +18,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/DownloadsWindow.java` — the only window: link field, filter chips, one painted row per job (buttons in a fixed
   column from `JobView.buttonBounds`), contextual footer, collapsible "Detalles" (yt-dlp output); polls every 500 ms;
   selection follows `Job` objects. Talks to the app only through `WindowHost`.
-- `src/SettingsDialog.java` — "Ajustes" (⌘,), System Settings layout: a rounded `Card` per section, one `option()`
+- `src/SettingsDialog.java` — "Ajustes" (⌘,), System Settings layout: a rounded `Card` per section (Apariencia, Carpeta, …), one `option()`
   row each (title + grey help left, control right: `DownloadsWindow.Switch`, `Choice` pill menu, `PillButton`;
   menus and "Cambiar…" share `CONTROL_W`). Folder, clipboard, embeds, retries, notifications, cookie status,
   "Instalar o actualizar" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
@@ -27,7 +27,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   … with administrator privileges` (native password dialog); setup.command in Terminal only if that fails.
 - `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
 - `src/WindowHost.java` — what the windows need from the app; `DownloadsWindow.PreviewHost` is the stub for previews.
-- `src/Theme.java` — light/dark palettes; appearance read at startup and every 3 s only while the window is visible.
+- `src/Theme.java` — light/dark palettes; `Mode` = Ajustes "Tema" (Sistema/Claro/Oscuro, setting `appearance`, user
+  asked for it); the system appearance is read at startup and every 3 s only while the window is visible.
 - `src/Glass.java` — the Liquid Glass skin (macOS 26 style; user asked for "ultra modern", replacing the earlier
   WMP11/Vista skin): frosted bars, pill controls, system accent blue (`ACCENT_LIGHT/DARK`), `sheen()` = soft top light
   + specular rim. Progress shimmer / indeterminate sweep math (tested).
@@ -135,7 +136,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   with the window edge (user moved the icon column left for that); the toolbar's Descargar/Ajustes sit exactly over
   the blue/plain columns. Also:
   "borrar todas" as discreet footer text that depends on the filter (a red standalone button was rejected).
-  "Borrar"/"Quitar" never delete files. Follows system light/dark mode.
+  "Borrar"/"Quitar" never delete files. Follows system light/dark mode unless Ajustes → Tema fixes one.
 - Tray tooltip: live "Site · title — 45% · 2.1 MB/s · quedan 0:12 · +N en cola" (`tooltip()`, throttled
   `refreshTooltip()`); yt-dlp gives title/speed/eta via `--print before_dl:TITLE …` (+ `--no-simulate`) and the
   progress template; back to "sin descargas" when idle.

@@ -470,6 +470,7 @@ public final class InstaTray implements WindowHost {
         videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
         loadJobs();
 
+        Theme.setMode(Theme.Mode.parse(settings.getProperty("appearance", "system"))); // LIGHT/DARK apply at once
         Theme.refresh(); // reads the appearance with a process: never on the EDT
         EventQueue.invokeAndWait(() -> {
             buildTray();
@@ -737,6 +738,17 @@ public final class InstaTray implements WindowHost {
     @Override
     public boolean notifications() {
         return notifications;
+    }
+
+    @Override
+    public Theme.Mode appearance() {
+        return Theme.mode();
+    }
+
+    @Override
+    public void setAppearance(Theme.Mode mode) {
+        Theme.setMode(mode);
+        saveSetting("appearance", mode.name().toLowerCase(java.util.Locale.ROOT));
     }
 
     @Override

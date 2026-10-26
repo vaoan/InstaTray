@@ -6,8 +6,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Light and dark Liquid Glass colours for the hand-painted windows; Glass paints the surfaces, following the system appearance. The appearance is read at
- * startup and, while the window is visible, every few seconds by its poll (never by a thread of its own).
+ * Light and dark Liquid Glass colours for the hand-painted windows; Glass paints the surfaces. Ajustes chooses light, dark
+ * or the system's appearance; the system's is read at startup and, while the window is visible, every few seconds by
+ * its poll (never by a thread of its own).
  */
 final class Theme {
 
@@ -32,6 +33,28 @@ final class Theme {
             new Color(0x2C2C2E), new Color(0x3A3A3C), new Color(0xF5F5F7), new Color(0x2C2C2E), new Color(Glass.ACCENT_DARK),
             Color.WHITE, new Color(0x2C2C2E), new Color(0x1C1C1E));
 
+    /** The Ajustes choice "Apariencia" (setting "appearance"). */
+    enum Mode {
+        SYSTEM("Sistema"), LIGHT("Claro"), DARK("Oscuro");
+
+        final String label;
+
+        Mode(String label) {
+            this.label = label;
+        }
+
+        /** The saved setting; anything unknown follows the system. */
+        static Mode parse(String s) {
+            for (Mode m : values()) if (m.name().equalsIgnoreCase(s)) return m;
+            return SYSTEM;
+        }
+
+        boolean dark(boolean systemDark) {
+            return this == SYSTEM ? systemDark : this == DARK;
+        }
+    }
+
+    private static volatile Mode mode = Mode.SYSTEM;
     private static volatile boolean dark = false; // set by refresh() off the EDT at startup
     private static final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 
@@ -53,9 +76,21 @@ final class Theme {
         listeners.add(onChangeEdt);
     }
 
-    /** Re-reads the system appearance; call off the EDT (it starts a process). */
+    static Mode mode() {
+        return mode;
+    }
+
+    /** Applies a new choice at once; following the system reads it in the background. */
+    static void setMode(Mode m) {
+        mode = m;
+        if (m == Mode.SYSTEM) java.util.concurrent.CompletableFuture.runAsync(Theme::refresh);
+        else update(m.dark(false));
+    }
+
+    /** Re-reads the system appearance if it is followed; call off the EDT (it starts a process). */
     static void refresh() {
-        update(readSystemDark());
+        Mode m = mode;
+        update(m.dark(m == Mode.SYSTEM && readSystemDark()));
     }
 
     static void update(boolean nowDark) {

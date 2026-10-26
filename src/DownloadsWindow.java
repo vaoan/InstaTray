@@ -1195,6 +1195,8 @@ final class DownloadsWindow {
         @Override public void setEmbeds(boolean on) {}
         @Override public boolean notifications() { return true; }
         @Override public void setNotifications(boolean on) {}
+        @Override public Theme.Mode appearance() { return Theme.Mode.SYSTEM; }
+        @Override public void setAppearance(Theme.Mode mode) {}
         @Override public int maxRetries() { return 2; }
         @Override public void setMaxRetries(int n) {}
         @Override public int retryDelaySec() { return 30; }

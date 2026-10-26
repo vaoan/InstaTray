@@ -26,6 +26,15 @@ public class ThemeTest {
         javax.swing.SwingUtilities.invokeAndWait(() -> {}); // listeners run on the EDT
         T.check("everyListenerHearsChange", heard[0] == 1 && heard[1] == 1, heard[0] + "/" + heard[1]);
         T.check("updateSetsMode", Theme.isDark(), "");
+
+        // Ajustes "Apariencia": fixed choices ignore the system; unknown settings follow it
+        T.check("modeDark", Theme.Mode.DARK.dark(false) && !Theme.Mode.LIGHT.dark(true), "");
+        T.check("modeSystem", Theme.Mode.SYSTEM.dark(true) && !Theme.Mode.SYSTEM.dark(false), "");
+        T.eq("modeParse", Theme.Mode.DARK, Theme.Mode.parse("dark"));
+        T.eq("modeParseUnknown", Theme.Mode.SYSTEM, Theme.Mode.parse(null));
+        Theme.setMode(Theme.Mode.LIGHT);
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        T.check("setModeLightAtOnce", !Theme.isDark(), "");
         T.done();
     }
 

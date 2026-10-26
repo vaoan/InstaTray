@@ -30,6 +30,7 @@ final class SettingsDialog {
     private final DownloadsWindow.Switch embeds = new DownloadsWindow.Switch();
     private final Choice<Integer> retries = new Choice<>(RETRIES, n -> n == 1 ? "1 vez" : n + " veces");
     private final Choice<Integer> delay = new Choice<>(DELAYS, sec -> sec < 60 ? sec + " s" : sec / 60 + " min");
+    private final Choice<Theme.Mode> appearance = new Choice<>(Theme.Mode.values(), m -> m.label);
     private final DownloadsWindow.Switch notify = new DownloadsWindow.Switch();
     private final JLabel cookies = new JLabel();
     private final JLabel tools = new JLabel();
@@ -53,6 +54,8 @@ final class SettingsDialog {
         change.setPreferredSize(new Dimension(CONTROL_W, 28));
         folder.setFont(HELP);
         folder.putClientProperty("role", "help");
+        card(root, "Apariencia",
+                option("Tema", "Claro, oscuro o igual que el sistema.", appearance));
         card(root, "Carpeta",
                 option(title("Carpeta de videos"), folder, change),
                 option("Una subcarpeta por red social", "Videos/Instagram, Videos/YouTube…", subfolders));
@@ -81,6 +84,9 @@ final class SettingsDialog {
         notify.onToggle = () -> flip(notify, host::setNotifications);
         retries.onChange = n -> {
             if (!loading) host.setMaxRetries(n);
+        };
+        appearance.onChange = m -> {
+            if (!loading) host.setAppearance(m);
         };
         delay.onChange = sec -> {
             if (!loading) host.setRetryDelaySec(sec);
@@ -139,6 +145,7 @@ final class SettingsDialog {
         notify.setOn(host.notifications());
         retries.set(host.maxRetries());
         delay.set(host.retryDelaySec());
+        appearance.set(host.appearance());
         loading = false;
     }
 

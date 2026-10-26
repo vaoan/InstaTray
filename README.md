@@ -173,6 +173,7 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 
 | Opción | Por defecto | Qué hace |
 |---|---|---|
+| Tema (*Apariencia*) | Sistema | *Claro*, *Oscuro* o *Sistema* (sigue el modo de macOS o Windows) |
 | Vigilar portapapeles | sí | Pausa o reanuda la detección automática de enlaces |
 | Avisar si una descarga falla | sí | Notificación **solo** cuando algo falla definitivamente. Lo que sale bien nunca notifica |
 | Carpeta de videos (*Cambiar…*) | `Documentos/Videos` | Selector de carpetas nativo de macOS |
@@ -197,7 +198,7 @@ Una sola ventana con todo: arriba el campo para pegar enlaces y el botón **Ajus
 descarga; abajo, una línea con el estado y las acciones. Tiene estilo **Liquid Glass** de macOS 26: barras
 esmeriladas, botones y filtros en forma de píldora con un borde de luz, el azul de acento del sistema y filas con
 selección redondeada. Sigue el **modo claro u oscuro** de macOS y cambia sola si cambias de modo con la ventana
-abierta. Las barras de progreso son finas, en degradado celeste→azul, con un destello suave que las recorre, y mientras
+abierta; en Ajustes → *Tema* puedes dejarla siempre clara o siempre oscura. Las barras de progreso son finas, en degradado celeste→azul, con un destello suave que las recorre, y mientras
 todavía no se sabe el avance («preparando…») un bloque de brillo va y viene. La animación solo corre con la ventana
 abierta y una descarga en curso.
 
@@ -309,7 +310,7 @@ InstaTray/
 │   ├── WindowHost.java    # lo que la ventana le pide a la app
 │   ├── DownloadsWindow.java # la ventana (java DownloadsWindow --preview <carpeta>)
 │   ├── SettingsDialog.java  # Ajustes (java SettingsDialog --preview <carpeta>)
-│   ├── Theme.java         # colores claro/oscuro según macOS
+│   ├── Theme.java         # colores claro/oscuro (Ajustes → Tema)
 │   ├── Glass.java         # piel Liquid Glass: superficies, píldoras y animación de las barras
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
 │   ├── NativeBar.java     # maneja el ayudante nativo de la barra de menús

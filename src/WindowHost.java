@@ -85,6 +85,11 @@ interface WindowHost {
      */
     void installTools(Consumer<String> progress, Runnable done);
 
+    Theme.Mode appearance();
+
+    /** Saves the choice and applies it (Theme.setMode). */
+    void setAppearance(Theme.Mode mode);
+
     boolean detailsOpen();
 
     void setDetailsOpen(boolean open);
