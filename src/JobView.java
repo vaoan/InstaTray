@@ -157,7 +157,7 @@ final class JobView {
         return list;
     }
 
-    static final int RIGHT_INSET = 14, BUTTON_W = 134, BUTTON_H = 24, GAP = 6, TRASH_W = 26;
+    static final int RIGHT_INSET = 14, BUTTON_W = 150, BUTTON_H = 24, GAP = 6, TRASH_W = 26;
 
     /** [primary, secondary, trash] in a row of this size: the same column for every row. */
     static Rectangle[] buttonBounds(int rowWidth, int rowHeight) {
