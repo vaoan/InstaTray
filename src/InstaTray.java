@@ -427,6 +427,7 @@ public final class InstaTray implements WindowHost {
 
     public static void main(String[] args) throws Exception {
         System.setProperty("apple.awt.UIElement", "true"); // no Dock icon
+        System.setProperty("apple.awt.application.appearance", "system"); // title bars and dialogs follow dark mode
         if (!SystemTray.isSupported()) {
             System.err.println("System tray not supported");
             System.exit(1);
