@@ -24,6 +24,8 @@ final class Job {
     volatile int percent = -1;
     volatile String message = "";
     volatile List<String> files = List.of();
+    /** Page the link was found in (pasted HTML), or "" when the link itself was copied. */
+    volatile String page = "";
     /** Automatic retries already used for the current request. */
     volatile int attempt = 0;
     /** Shown in the tray tooltip while downloading: video title (or file name), speed and time left. */
@@ -75,7 +77,7 @@ final class Job {
 
     String toLine() {
         return String.join("\t", String.valueOf(createdAt), link.key(), link.url(), link.site().name(),
-                status.name(), clean(message), clean(String.join("|", files)));
+                status.name(), clean(message), clean(String.join("|", files)), clean(page));
     }
 
     /** Jobs still queued or downloading when the app quit come back as QUEUED and are resumed. */
@@ -89,6 +91,7 @@ final class Job {
             job.status = st == Status.DOWNLOADING ? Status.QUEUED : st;
             job.message = job.isFinished() ? f[5] : "Retomado al abrir InstaTray";
             job.files = f[6].isEmpty() ? List.of() : List.of(f[6].split("\\|"));
+            if (f.length > 7) job.page = f[7];
             return job;
         } catch (IllegalArgumentException e) {
             return null;

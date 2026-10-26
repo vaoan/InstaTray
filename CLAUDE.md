@@ -40,6 +40,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Deliberately NOT supported (re-host others' work without permission): Kemono, Coomer, nhentai, ExHentai, Hitomi,
   manga aggregators (e.g. myreadingmanga), boorus. The user asked for myreadingmanga twice; it was declined.
   A third try went through EMBED and hit Cloudflare: never add `generic:impersonate` / anti-bot workarounds.
+  A fourth try pasted the page HTML (DevTools element): the .mp4 was found but Cloudflare 403'd it — declined again;
+  don't reuse `cf_clearance`/browser cookies or impersonation to get past it.
 
 ## Catch-all sites
 - `otherCandidates()` picks URLs no rule matched and whose host isn't a named site's (so profiles/channels/live
@@ -58,10 +60,17 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   sites (the user asked for wcostream.tv; declined).
 - Pasted HTML (`looksLikeHtml`: page source in the plain text, or the `allHtmlFlavor` of a rich copy via
   `readClipboardHtml()`): `pageVideos()` → media (video/source, og:video, JSON-LD contentUrl, .mp4/.m3u8/.mpd URLs,
-  JSON-escaped too) + players (iframe/embed, embedUrl) + canonical page; relative URLs resolved with `<base>`/canonical.
+  JSON-escaped too, relative paths, `data-video`/`data-hls-src`… attrs, player configs `file:`/`hls:`/`videoUrl:` also
+  inside `&quot;`-encoded `data-setup`) + players (iframe/embed, embedUrl, Plyr youtube/vimeo ids) + canonical page.
+  Quality lists (`sources: [...]`, `<source size=…>` in one `<video>`, `_720p`/`_1080p` URL twins) keep only the best,
+  manifests first; relative URLs resolved with `<base>`/canonical.
   `pageLinks()`: media may go Generic (EMBED) even with `embeds` off; players only via real extractors unless
   embeds/force; canonical URL only as fallback. Page source replaces the plain-text scan (otherwise every css/js URL
-  would be probed). blob: URLs skipped. No Referer/anti-bot tricks.
+  would be probed). blob: URLs and `NOT_VIDEO` extensions
+  (images/audio/css/js/subtitles; JSON-LD contentUrl also names images) skipped. No Referer/anti-bot tricks.
+  The user asked for a real/headless browser to fetch the "real" video from pasted HTML: declined (same bypass).
+  Instead: EMBED 403 → permanent "no deja bajar este video fuera de su página" and `Job.page` (8th TSV column) keeps
+  the pasted page, which Historial "Abrir en el navegador" opens so the user can save it by hand.
 - Window "Enlace" field and "Descargar copiado" call `handleText(text, force=true)`: re-download allowed and EMBED
   allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
 

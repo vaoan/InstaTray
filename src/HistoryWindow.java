@@ -87,8 +87,9 @@ final class HistoryWindow {
                 .findFirst().ifPresent(j -> app.revealInFinder(Paths.get(j.files.get(0)))));
         JButton copyLink = button("Copiar enlace", () -> app.copyToClipboardSilently(
                 String.join("\n", done.selected().stream().map(j -> j.link.url()).toList())));
-        JButton openLink = button("Abrir enlace", () -> done.selected().stream().findFirst()
-                .ifPresent(j -> app.openUrl(j.link.url())));
+        // the page a pasted video came from, so the user can watch or save it there by hand
+        JButton openLink = button("Abrir en el navegador", () -> done.selected().stream().findFirst()
+                .ifPresent(j -> app.openUrl(j.page.isEmpty() ? j.link.url() : j.page)));
         JButton clear = button("Limpiar historial", app::clearFinishedJobs);
         JButton folder = button("Abrir carpeta", app::openDocuments);
         done.onSelection = sel -> {
@@ -108,7 +109,27 @@ final class HistoryWindow {
     }
 
     private JPanel withButtons(JobTable table, AbstractButton... buttons) {
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)) {
+            // FlowLayout reports a single row, so buttons past the window edge were cut off: wrap them instead
+            @Override
+            public Dimension getPreferredSize() {
+                int width = getParent() != null ? getParent().getWidth() : 0;
+                if (width <= 0) return super.getPreferredSize();
+                Insets in = getInsets();
+                int x = in.left + 6, rowHeight = 0, height = in.top + 6;
+                for (Component c : getComponents()) {
+                    Dimension d = c.getPreferredSize();
+                    if (x + d.width + 6 > width - in.right && x > in.left + 6) {
+                        height += rowHeight + 6;
+                        x = in.left + 6;
+                        rowHeight = 0;
+                    }
+                    x += d.width + 6;
+                    rowHeight = Math.max(rowHeight, d.height);
+                }
+                return new Dimension(width, height + rowHeight + 6 + in.bottom);
+            }
+        };
         for (AbstractButton b : buttons) bar.add(b);
         JPanel p = new JPanel(new BorderLayout());
         p.add(new JScrollPane(table.table), BorderLayout.CENTER);

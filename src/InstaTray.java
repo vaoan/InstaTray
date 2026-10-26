@@ -16,6 +16,7 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 import java.util.List;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import java.util.LinkedList;
 import java.awt.desktop.AppReopenedListener;
 import javax.swing.BorderFactory;
@@ -1025,7 +1026,9 @@ public final class InstaTray {
         List<Link> links = new ArrayList<>(findLinks(plain));
         links.addAll(probeLibraries(otherCandidates(plain), embeds || force));
         String html = source ? text : richHtml;
-        if (!html.isEmpty()) links.addAll(pageLinks(pageVideos(html), force));
+        PageVideos pv = html.isEmpty() ? null : pageVideos(html);
+        List<Link> fromPage = pv == null ? List.of() : pageLinks(pv, force);
+        links.addAll(fromPage);
         for (Link link : links) {
             found = true;
             String key = link.key();
@@ -1035,6 +1038,7 @@ public final class InstaTray {
                 continue;
             }
             Job job = new Job(link, System.currentTimeMillis());
+            if (pv != null && pv.page() != null && fromPage.contains(link)) job.page = pv.page(); // for "Abrir en el navegador"
             synchronized (jobs) {
                 jobs.add(0, job);
             }
@@ -1404,6 +1408,40 @@ public final class InstaTray {
             "(?:https?:)?//[^\\s<>\"'`()]+?\\.(?:mp4|m4v|mov|webm|m3u8|mpd)(?:\\?[^\\s<>\"'`()]*)?(?=[\\s<>\"'`()]|$)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern JSON_VIDEO = Pattern.compile("\"(contentUrl|embedUrl)\"\\s*:\\s*\"([^\"]+)\"");
+    /** Media paths relative to the page: "/media/clip.mp4", './v/index.m3u8'. */
+    private static final Pattern RELATIVE_MEDIA = Pattern.compile(
+            "[\"'](\\.{0,2}/(?!/)[^\\s<>\"'`()]+?\\.(?:mp4|m4v|mov|webm|m3u8|mpd)(?:\\?[^\\s<>\"'`()]*)?)[\"']",
+            Pattern.CASE_INSENSITIVE);
+    /** Video attributes of any element: data-video="…", data-hls-src="…", data-mp4="…". */
+    private static final Pattern DATA_VIDEO_ATTR = Pattern.compile("\\sdata-(?:video|video-src|video-url|src-video|hls|"
+            + "hls-src|hls-url|dash|dash-src|mp4|stream|stream-url|stream-src)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')",
+            Pattern.CASE_INSENSITIVE);
+    /** Player configs (JW Player, Clappr, custom ones): file: "…", hls: "…", videoUrl: "…". */
+    private static final Pattern PLAYER_CONFIG_URL = Pattern.compile("[\"']?(?:file|hls|hlsUrl|hls_url|dash|dashUrl|mp4|"
+            + "videoUrl|video_url|videoSrc|streamUrl|stream_url|manifestUrl|playbackUrl)[\"']?\\s*:\\s*"
+            + "[\"']((?:https?:)?/[^\"'\\s<>]+)[\"']", Pattern.CASE_INSENSITIVE);
+    /** Plyr players that wrap YouTube/Vimeo: data-plyr-provider="youtube" data-plyr-embed-id="ID" (either order). */
+    private static final Pattern PLYR_EMBED = Pattern.compile("<[^>]*?data-plyr-provider\\s*=\\s*[\"'](youtube|vimeo)[\"']"
+            + "[^>]*>|<[^>]*?data-plyr-embed-id[^>]*>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLYR_ATTRS = Pattern.compile(
+            "data-plyr-(provider|embed-id)\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+    /** Quality lists of player configs: sources: [{file: "…", label: "720p"}, …] (Video.js, JW Player, Plyr). */
+    private static final Pattern SOURCE_LIST = Pattern.compile(
+            "[\"']?(?:sources|qualities|renditions|levels)[\"']?\\s*:\\s*\\[([^\\[\\]]*)\\]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SOURCE_ENTRY = Pattern.compile("\\{([^{}]*)\\}");
+    private static final Pattern ENTRY_URL =
+            Pattern.compile("[\"']?(?:file|src|url)[\"']?\\s*:\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ENTRY_QUALITY = Pattern.compile(
+            "[\"']?(?:label|quality|res|height|size)[\"']?\\s*:\\s*[\"']?(\\d{3,4})", Pattern.CASE_INSENSITIVE);
+    /** Quality in a <source> attribute (Plyr size="720", res="1080", label="480p"). */
+    private static final Pattern ATTR_QUALITY = Pattern.compile("(\\d{3,4})");
+    /** Same video in several qualities: ".../clip_720p.mp4" vs ".../clip_1080p.mp4". */
+    private static final Pattern URL_QUALITY =
+            Pattern.compile("(?<=[/_.=-])(2160|1440|1080|720|540|480|360|240|144)p?(?=[/_.&-]|$)", Pattern.CASE_INSENSITIVE);
+    /** Files a page lists that are never video (JSON-LD contentUrl also names images, og:video can be a thumbnail). */
+    private static final Pattern NOT_VIDEO = Pattern.compile(
+            "\\.(?:jpe?g|png|gif|webp|avif|svg|ico|bmp|mp3|m4a|aac|ogg|wav|flac|css|js|json|pdf|vtt|srt)(?:[?#].*)?$",
+            Pattern.CASE_INSENSITIVE);
 
     /** True if the text is HTML source rather than plain text with links. */
     static boolean looksLikeHtml(String text) {
@@ -1415,6 +1453,8 @@ public final class InstaTray {
         String text = html.replace("\\/", "/").replaceAll("(?i)\\\\u002f", "/").replaceAll("(?i)\\\\u0026", "&");
         String page = null, base = null;
         List<String[]> found = new ArrayList<>(); // {kind, raw value}: "m" = media, "p" = player
+        List<List<String[]>> qualityLists = new ArrayList<>(); // {raw url, quality}: only the best of each is kept
+        List<String[]> videoSources = null; // <source> tags with a quality attribute in the current <video>
         Matcher t = HTML_TAG.matcher(text);
         while (t.find()) {
             String tag = t.group(1).toLowerCase(Locale.ROOT);
@@ -1440,9 +1480,19 @@ public final class InstaTray {
                     } else if (prop.equals("twitter:player")) found.add(new String[] {"p", content});
                 }
                 case "video", "source" -> {
+                    if (tag.equals("video")) qualityLists.add(videoSources = new ArrayList<>());
                     if (type.startsWith("audio/") || type.startsWith("image/")) continue;
                     String src = a.getOrDefault("src", a.get("data-src"));
-                    if (src != null) found.add(new String[] {"m", src});
+                    if (src == null) continue;
+                    String q = Stream.of("size", "res", "label", "data-quality", "data-res", "height")
+                            .map(a::get).filter(v -> v != null && ATTR_QUALITY.matcher(v).find()).findFirst().orElse(null);
+                    if (tag.equals("source") && q != null && videoSources != null) {
+                        Matcher qm = ATTR_QUALITY.matcher(q);
+                        qm.find();
+                        videoSources.add(new String[] {src, qm.group(1)});
+                    } else {
+                        found.add(new String[] {"m", src});
+                    }
                 }
                 default -> { // iframe, embed
                     String src = a.getOrDefault("src", a.get("data-src"));
@@ -1450,20 +1500,87 @@ public final class InstaTray {
                 }
             }
         }
-        Matcher j = JSON_VIDEO.matcher(text);
+        Matcher d = DATA_VIDEO_ATTR.matcher(text);
+        while (d.find()) found.add(new String[] {"m", d.group(1) != null ? d.group(1) : d.group(2)});
+        Matcher pl = PLYR_EMBED.matcher(text);
+        while (pl.find()) {
+            Map<String, String> a = new HashMap<>();
+            Matcher pa = PLYR_ATTRS.matcher(pl.group());
+            while (pa.find()) a.put(pa.group(1).toLowerCase(Locale.ROOT), pa.group(2));
+            String id = a.get("embed-id"), provider = a.getOrDefault("provider", "").toLowerCase(Locale.ROOT);
+            if (id == null) continue;
+            if (id.matches("(?i)(?:https?:)?//.+")) found.add(new String[] {"p", id});
+            else if (provider.equals("youtube")) found.add(new String[] {"p", "https://www.youtube.com/watch?v=" + id});
+            else if (provider.equals("vimeo")) found.add(new String[] {"p", "https://vimeo.com/" + id});
+        }
+        // configs inside attributes (Video.js data-setup) come with &quot; for quotes
+        String json = text.replace("&quot;", "\"").replace("&#34;", "\"");
+        Matcher j = JSON_VIDEO.matcher(json);
         while (j.find()) found.add(new String[] {j.group(1).equals("contentUrl") ? "m" : "p", j.group(2)});
+        Matcher sl = SOURCE_LIST.matcher(json);
+        while (sl.find()) {
+            List<String[]> list = new ArrayList<>();
+            Matcher e = SOURCE_ENTRY.matcher(sl.group(1));
+            while (e.find()) {
+                Matcher u = ENTRY_URL.matcher(e.group(1));
+                if (!u.find()) continue;
+                Matcher q = ENTRY_QUALITY.matcher(e.group(1));
+                list.add(new String[] {u.group(1), q.find() ? q.group(1) : "0"});
+            }
+            qualityLists.add(list);
+        }
+        Matcher pc = PLAYER_CONFIG_URL.matcher(json);
+        while (pc.find()) found.add(new String[] {"m", pc.group(1)});
         Matcher mu = MEDIA_URL.matcher(text);
         while (mu.find()) found.add(new String[] {"m", mu.group()});
+        Matcher rm = RELATIVE_MEDIA.matcher(text);
+        while (rm.find()) found.add(new String[] {"m", rm.group(1)});
 
         String pageUrl = resolveUrl(null, page);
         String baseUrl = base != null ? resolveUrl(pageUrl, base) : pageUrl;
-        Set<String> media = new LinkedHashSet<>(), players = new LinkedHashSet<>();
+        // a quality list names one video: keep its best entry (a manifest has every quality), drop the others
+        Set<String> best = new LinkedHashSet<>(), worse = new HashSet<>();
+        for (List<String[]> list : qualityLists) {
+            String top = null;
+            int topRank = -1;
+            for (String[] s : list) {
+                String url = resolveUrl(baseUrl, s[0]);
+                if (url == null || NOT_VIDEO.matcher(url).find()) continue;
+                int rank = url.matches("(?i).*\\.(?:m3u8|mpd)(?:\\?.*)?") ? 100000 : Integer.parseInt(s[1]);
+                if (top != null) worse.add(rank > topRank ? top : url);
+                if (rank > topRank) {
+                    top = url;
+                    topRank = rank;
+                }
+            }
+            if (top != null) best.add(top);
+        }
+        worse.removeAll(best);
+        Set<String> media = new LinkedHashSet<>(best), players = new LinkedHashSet<>();
         for (String[] f : found) {
             String url = resolveUrl(baseUrl, f[1]);
-            if (url != null && !url.equals(pageUrl)) (f[0].equals("m") ? media : players).add(url);
+            if (url == null || url.equals(pageUrl) || worse.contains(url) || NOT_VIDEO.matcher(url).find()) continue;
+            (f[0].equals("m") ? media : players).add(url);
         }
         players.removeAll(media);
-        return new PageVideos(new ArrayList<>(media), new ArrayList<>(players), pageUrl);
+        return new PageVideos(bestQualities(media), new ArrayList<>(players), pageUrl);
+    }
+
+    /** Of URLs that differ only by a quality token (clip_720p.mp4, clip_1080p.mp4), keeps the highest one. */
+    static List<String> bestQualities(Collection<String> urls) {
+        Map<String, String> byVideo = new LinkedHashMap<>();
+        Map<String, Integer> rank = new HashMap<>();
+        for (String url : urls) {
+            Matcher q = URL_QUALITY.matcher(url);
+            int r = 0;
+            while (q.find()) r = Integer.parseInt(q.group(1));
+            String video = URL_QUALITY.matcher(url).replaceAll("Q");
+            if (!byVideo.containsKey(video) || r > rank.get(video)) {
+                byVideo.put(video, url);
+                rank.put(video, r);
+            }
+        }
+        return new ArrayList<>(byVideo.values());
     }
 
     /** Absolute http(s) URL for an attribute value (entities decoded), or null (blob:, data:, unresolvable). */
@@ -1798,6 +1915,9 @@ public final class InstaTray {
                     msg = link.label() + " pide sesión: exporta cookies nuevas de " + cookieSource(link) + " a Descargas";
                 } else if (all.contains("anti-bot challenge")) {
                     msg = "El sitio bloquea las descargas automáticas (Cloudflare)"; // retrying never helps
+                } else if (site == Site.EMBED && (all.contains("HTTP Error 403") || all.contains("Forbidden"))) {
+                    // the server refuses anything but its own player: no workaround, the user can still open the page
+                    msg = "El sitio no deja bajar este video fuera de su página (403): usa «Abrir en el navegador»";
                 } else if (site == Site.EMBED && (msg.contains("Unsupported URL") || all.contains("404"))) {
                     msg = "No se encontró ningún video en la página";
                     silent = true; // the page was most likely copied for its text: never notify

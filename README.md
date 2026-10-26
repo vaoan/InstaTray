@@ -107,9 +107,10 @@ Descargas con un nombre que mencione el sitio (como las exporta la extensión: `
 
 **Código de una página copiado (HTML):**
 - Si copias el **código fuente** de una página (Ver código fuente → Cmd+A → Cmd+C), o una parte de la página con el video dentro, InstaTray lee el HTML y baja el video. Funciona igual al copiar, pegando en el campo **Enlace** o con *Descargar copiado*.
-- Busca, en este orden: lo que la página reproduce (`<video>`/`<source>`, `og:video`, `contentUrl` de JSON-LD, enlaces `.mp4`/`.m3u8`/`.mpd` aunque estén dentro de scripts) y después los reproductores embebidos (`<iframe>`, también `data-src`). Las rutas relativas se completan con `<base>` o la URL canónica de la página.
+- Busca, en este orden: lo que la página reproduce (`<video>`/`<source>`, `og:video`, `contentUrl` de JSON-LD, enlaces `.mp4`/`.m3u8`/`.mpd` aunque estén dentro de scripts o sean rutas relativas, atributos como `data-video`/`data-hls-src`, configuraciones de reproductores como JW Player, Video.js o Clappr: `file:`, `hls:`, `videoUrl:`, `sources: […]`) y después los reproductores embebidos (`<iframe>`, también `data-src`). Los reproductores Plyr que envuelven YouTube o Vimeo (`data-plyr-provider` + `data-plyr-embed-id`) se bajan del sitio original. Las rutas relativas se completan con `<base>` o la URL canónica de la página.
+- **Varias calidades del mismo video** (lista `sources` de un reproductor, varios `<source size="720">` dentro de un `<video>`, o archivos como `clip_720p.mp4` y `clip_1080p.mp4`): se baja solo la mejor, y un manifiesto `.m3u8`/`.mpd` es preferido porque trae todas las calidades.
 - Lo que la página reproduce se baja aunque *Buscar video embebido* esté apagado (copiar una página con video ya es pedirlo). Los `<iframe>` solo si los reconoce un extractor real (YouTube, Vimeo…), para no bajar anuncios. Si no encuentra nada, prueba la URL canónica de la página.
-- Se ignoran `blob:` (reproductores que arman el video en el navegador: copia la página de origen o el `.m3u8`), audio e imágenes. Máximo 5 enlaces por copia. No se usan trucos anti-bot: si el servidor del video exige sesión o bloquea, no se baja.
+- Se ignoran `blob:` (reproductores que arman el video en el navegador: copia la página de origen o el `.m3u8`), audio e imágenes. Máximo 5 enlaces por copia. No se usan trucos anti-bot ni un navegador automático: si el servidor del video exige sesión o bloquea, no se baja. Cuando responde **403**, el Historial dice «El sitio no deja bajar este video fuera de su página» y *Abrir en el navegador* abre la página donde estaba el video, para verlo o guardarlo tú a mano.
 
 **Pixiv:**
 - Pixiv no aloja videos normales. Lo animado son *ugoira* (cuadros sin sonido), que se convierten a mp4.
@@ -160,7 +161,8 @@ descarga seleccionada, en vivo mientras baja.
 - *Reintentar* y *Reintentar fallidos*: también sirven para volver a bajar algo ya descargado.
 - *Mostrar video*: lo muestra en el Finder.
 - *Copiar enlace*: no dispara una nueva descarga.
-- *Abrir enlace*, *Limpiar historial* y *Abrir carpeta*.
+- *Abrir en el navegador*: abre el enlace, o la página de origen si el video salió de un HTML copiado.
+- *Limpiar historial* y *Abrir carpeta*.
 - Guarda las últimas 200 descargas, aunque cierres el programa. La salida de yt-dlp solo se conserva durante la sesión.
 
 ## Archivos del programa
