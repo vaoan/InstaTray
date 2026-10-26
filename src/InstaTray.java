@@ -15,7 +15,9 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.*;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.LinkedList;
 import java.awt.desktop.AppReopenedListener;
@@ -40,7 +42,7 @@ import javax.swing.WindowConstants;
  * using each site's cookies.txt found in ~/Downloads.
  * Videos are saved to ~/Documents/<Site> Videos.
  */
-public final class InstaTray {
+public final class InstaTray implements WindowHost {
 
     private static final Path HOME = Paths.get(System.getProperty("user.home"));
     private static final Path DOWNLOADS = HOME.resolve("Downloads");
@@ -419,6 +421,8 @@ public final class InstaTray {
     private JCheckBox winEmbeds;
     private volatile int maxRetries = 2;
     private volatile int retryDelaySec = 30;
+    /** Downloads window: the "Detalles" panel is open. */
+    private volatile boolean detailsOpen = false;
     private static final Integer[] RETRY_DELAYS = {10, 30, 60, 300};
 
     public static void main(String[] args) throws Exception {
@@ -455,6 +459,7 @@ public final class InstaTray {
         notifications = Boolean.parseBoolean(settings.getProperty("notifications", "true"));
         subfolders = Boolean.parseBoolean(settings.getProperty("subfolders", "false"));
         embeds = Boolean.parseBoolean(settings.getProperty("embeds", "false"));
+        detailsOpen = Boolean.parseBoolean(settings.getProperty("details", "false"));
         maxRetries = Integer.parseInt(settings.getProperty("maxRetries", "2"));
         retryDelaySec = Integer.parseInt(settings.getProperty("retryDelaySec", "30"));
         videosDir = Paths.get(settings.getProperty("videosDir", DEFAULT_VIDEOS_DIR.toString()));
@@ -623,7 +628,7 @@ public final class InstaTray {
         folderRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         winFolder = new JLabel();
         JButton change = new JButton("Cambiar…");
-        change.addActionListener(e -> chooseVideosDir());
+        change.addActionListener(e -> chooseVideosDir(window));
         folderRow.add(winFolder);
         folderRow.add(Box.createHorizontalStrut(8));
         folderRow.add(change);
@@ -645,8 +650,7 @@ public final class InstaTray {
         JComboBox<Integer> retries = new JComboBox<>(new Integer[]{0, 1, 2, 3, 4, 5});
         retries.setSelectedItem(maxRetries);
         retries.addActionListener(e -> {
-            maxRetries = (Integer) retries.getSelectedItem();
-            saveSetting("maxRetries", String.valueOf(maxRetries));
+            setMaxRetries((Integer) retries.getSelectedItem());
         });
         JComboBox<Integer> delay = new JComboBox<>(RETRY_DELAYS);
         delay.setRenderer(new DefaultListCellRenderer() {
@@ -658,8 +662,7 @@ public final class InstaTray {
         });
         delay.setSelectedItem(retryDelaySec);
         delay.addActionListener(e -> {
-            retryDelaySec = (Integer) delay.getSelectedItem();
-            saveSetting("retryDelaySec", String.valueOf(retryDelaySec));
+            setRetryDelaySec((Integer) delay.getSelectedItem());
         });
         retryRow.add(new JLabel("Si falla, reintentar en silencio "));
         retryRow.add(retries);
@@ -726,7 +729,7 @@ public final class InstaTray {
     /**
      * Loopback-only control channel. An empty line (a second launch) shows the window; the other
      * commands exist so the queue can be exercised from a terminal: queue, tooltip, get TEXT, pause, resume,
-     * top KEY, cancel KEY.
+     * top KEY, cancel KEY, remove KEY.
      */
     private String control(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
@@ -745,6 +748,11 @@ public final class InstaTray {
             case "resume" -> setPaused(false);
             case "top" -> { if (job != null) move(job, Integer.MIN_VALUE); else return "no such job"; }
             case "cancel" -> { if (job != null) cancel(job); else return "no such job"; }
+            case "remove" -> {
+                Job any = job != null ? job
+                        : jobsSnapshot().stream().filter(j -> j.link.key().equals(arg)).findFirst().orElse(null);
+                if (any != null) remove(any); else return "no such job";
+            }
             default -> { return "unknown command"; }
         }
         return "ok";
@@ -760,7 +768,8 @@ public final class InstaTray {
         }
     }
 
-    private void setWatching(boolean on) {
+    @Override
+    public void setWatching(boolean on) {
         watching = on;
         EventQueue.invokeLater(() -> {
             watchItem.setState(on);
@@ -769,7 +778,8 @@ public final class InstaTray {
         poller.execute(() -> setStatus(on ? "Vigilando portapapeles" : "En pausa"));
     }
 
-    private void setNotifications(boolean on) {
+    @Override
+    public void setNotifications(boolean on) {
         notifications = on;
         EventQueue.invokeLater(() -> {
             notifyItem.setState(on);
@@ -779,7 +789,8 @@ public final class InstaTray {
         log("Notifications " + (on ? "on" : "off"));
     }
 
-    private void setSubfolders(boolean on) {
+    @Override
+    public void setSubfolders(boolean on) {
         subfolders = on;
         EventQueue.invokeLater(() -> {
             subfoldersItem.setState(on);
@@ -790,7 +801,8 @@ public final class InstaTray {
         log("Subfolders " + (on ? "on" : "off"));
     }
 
-    private void setEmbeds(boolean on) {
+    @Override
+    public void setEmbeds(boolean on) {
         embeds = on;
         EventQueue.invokeLater(() -> {
             embedsItem.setState(on);
@@ -800,10 +812,98 @@ public final class InstaTray {
         log("Embedded-video pages " + (on ? "on" : "off"));
     }
 
-    private void chooseVideosDir() {
+    @Override
+    public boolean isWatching() {
+        return watching;
+    }
+
+    @Override
+    public boolean subfolders() {
+        return subfolders;
+    }
+
+    @Override
+    public boolean embeds() {
+        return embeds;
+    }
+
+    @Override
+    public boolean notifications() {
+        return notifications;
+    }
+
+    @Override
+    public int maxRetries() {
+        return maxRetries;
+    }
+
+    @Override
+    public void setMaxRetries(int n) {
+        maxRetries = n;
+        saveSetting("maxRetries", String.valueOf(n));
+    }
+
+    @Override
+    public int retryDelaySec() {
+        return retryDelaySec;
+    }
+
+    @Override
+    public void setRetryDelaySec(int sec) {
+        retryDelaySec = sec;
+        saveSetting("retryDelaySec", String.valueOf(sec));
+    }
+
+    @Override
+    public boolean detailsOpen() {
+        return detailsOpen;
+    }
+
+    @Override
+    public void setDetailsOpen(boolean open) {
+        detailsOpen = open;
+        saveSetting("details", String.valueOf(open));
+    }
+
+    @Override
+    public String videosFolderLabel() {
+        return displayPath(videosDir) + (subfolders ? "/<red social>" : "");
+    }
+
+    @Override
+    public void openVideosFolder() {
+        openPath(videosDir);
+    }
+
+    @Override
+    public void cookiesSummary(Consumer<String> onEdt) {
+        poller.execute(() -> {
+            String text = cookiesLabel();
+            EventQueue.invokeLater(() -> onEdt.accept(text));
+        });
+    }
+
+    @Override
+    public void submit(String text, Runnable onNothingFound) {
+        poller.execute(() -> {
+            if (!handleText(text, true)) EventQueue.invokeLater(onNothingFound);
+        });
+    }
+
+    /** -1 when the file is gone (moved or deleted by the user). */
+    static long fileSize(String file) {
+        try {
+            return Files.size(Paths.get(file));
+        } catch (IOException | RuntimeException e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public void chooseVideosDir(Window owner) {
         // Native macOS folder picker
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
-        FileDialog fd = new FileDialog(window, "Elige la carpeta para los videos", FileDialog.LOAD);
+        FileDialog fd = new FileDialog(owner instanceof Frame f ? f : null, "Elige la carpeta para los videos", FileDialog.LOAD);
         fd.setDirectory(videosDir.toString());
         fd.setVisible(true);
         System.setProperty("apple.awt.fileDialogForDirectories", "false");
@@ -1086,7 +1186,8 @@ public final class InstaTray {
     }
 
     /** Re-runs a finished or failed job (from the history window). */
-    void retry(Job job) {
+    @Override
+    public void retry(Job job) {
         if (!job.isFinished()) return;
         if (queued.contains(job.link.key())) return;
         log("Retry " + job.link.url());
@@ -1154,7 +1255,8 @@ public final class InstaTray {
     }
 
     /** What is downloading now followed by what waits, in order. */
-    List<Job> queueSnapshot() {
+    @Override
+    public List<Job> queueSnapshot() {
         List<Job> list = new ArrayList<>();
         Job c = current;
         if (c != null) list.add(c);
@@ -1164,12 +1266,14 @@ public final class InstaTray {
         return list;
     }
 
-    List<Job> finishedSnapshot() {
+    @Override
+    public List<Job> finishedSnapshot() {
         return jobsSnapshot().stream().filter(Job::isFinished).toList();
     }
 
     /** delta -1 = up, +1 = down, Integer.MIN_VALUE = to the top. */
-    void move(Job job, int delta) {
+    @Override
+    public void move(Job job, int delta) {
         synchronized (pending) {
             int i = pending.indexOf(job);
             if (i < 0) return;
@@ -1181,7 +1285,8 @@ public final class InstaTray {
         log("Queue move " + job.link.url() + " -> " + (delta == Integer.MIN_VALUE ? "top" : delta));
     }
 
-    void cancel(Job job) {
+    @Override
+    public void cancel(Job job) {
         boolean wasPending;
         synchronized (pending) {
             wasPending = pending.remove(job);
@@ -1201,21 +1306,51 @@ public final class InstaTray {
         }
     }
 
-    void cancelAll() {
+    @Override
+    public void cancelAll() {
         List<Job> waiting;
         synchronized (pending) {
             waiting = new ArrayList<>(pending);
         }
-        waiting.forEach(this::cancel);
+        waiting.forEach(this::remove);
         Job c = current;
         if (c != null) cancel(c);
     }
 
-    boolean isPaused() {
+    @Override
+    public void remove(Job job) {
+        if (job == current) return; // only cancelled, never removed while downloading
+        boolean wasPending;
+        synchronized (pending) {
+            wasPending = pending.remove(job);
+        }
+        if (wasPending) {
+            queued.remove(job.link.key());
+            if (queued.isEmpty()) activeSite = null;
+        }
+        synchronized (jobs) {
+            jobs.remove(job);
+        }
+        saveJobs();
+        updateTrayIcon();
+        log("Removed " + job.link.url());
+    }
+
+    @Override
+    public void removeFinished(Predicate<Job> which) {
+        synchronized (jobs) {
+            jobs.removeIf(j -> j.isFinished() && which.test(j));
+        }
+        saveJobs();
+    }
+
+    @Override
+    public boolean isPaused() {
         return paused;
     }
 
-    void setPaused(boolean on) {
+    @Override
+    public void setPaused(boolean on) {
         paused = on;
         synchronized (pending) {
             pending.notifyAll();
@@ -1335,7 +1470,10 @@ public final class InstaTray {
         try {
             for (String line : Files.readAllLines(JOBS, StandardCharsets.UTF_8)) {
                 Job j = Job.fromLine(line);
-                if (j != null) jobs.add(j);
+                if (j != null) {
+                    if (j.status == Job.Status.DONE && !j.files.isEmpty()) j.bytes = fileSize(j.files.get(0));
+                    jobs.add(j);
+                }
             }
         } catch (IOException e) {
             log("ERROR loading jobs: " + e);
@@ -1894,6 +2032,7 @@ public final class InstaTray {
                 Files.writeString(HISTORY, link.key() + "\n", StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                 job.files = List.copyOf(files);
+                job.bytes = fileSize(files.get(0));
                 job.percent = 100;
                 job.message = (files.size() > 1 ? files.size() + " videos en " : "Guardado en ") + displayPath(outDir)
                         + (files.size() == 1 ? "/" + Paths.get(files.get(0)).getFileName() : "");
@@ -2288,14 +2427,16 @@ public final class InstaTray {
         }
     }
 
-    void revealInFinder(Path file) {
+    @Override
+    public void revealInFinder(Path file) {
         try {
             new ProcessBuilder("open", "-R", file.toString()).start();
         } catch (IOException ignored) {
         }
     }
 
-    void openUrl(String url) {
+    @Override
+    public void openUrl(String url) {
         try {
             new ProcessBuilder("open", url).start();
         } catch (IOException ignored) {
@@ -2307,7 +2448,8 @@ public final class InstaTray {
     }
 
     /** Copies text without the clipboard watcher treating it as a new link to download. */
-    void copyToClipboardSilently(String text) {
+    @Override
+    public void copyToClipboardSilently(String text) {
         lastClip = text;
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
     }
