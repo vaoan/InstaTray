@@ -51,7 +51,7 @@ public final class InstaTray implements WindowHost {
 
     private static final Path HOME = Paths.get(System.getProperty("user.home"));
     private static final Path DOWNLOADS = HOME.resolve("Downloads");
-    private static final Path STATE_DIR = HOME.resolve("Library/Application Support/InstaTray");
+    private static final Path STATE_DIR = Platform.stateDir();
     private static final Path HISTORY = STATE_DIR.resolve("downloaded.txt");
     private static final Path SETTINGS = STATE_DIR.resolve("settings.properties");
     private static final Path JOBS = STATE_DIR.resolve("jobs.tsv");
@@ -369,8 +369,6 @@ public final class InstaTray implements WindowHost {
 
     private static final int INSTANCE_PORT = 48623;
 
-    private static final String[] BIN_DIRS = {"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"};
-
     /** Waiting jobs in download order (includes automatic retries waiting for their delay). Guarded by itself. */
     private final LinkedList<Job> pending = new LinkedList<>();
     private volatile Job current;
@@ -410,7 +408,7 @@ public final class InstaTray implements WindowHost {
     private CheckboxMenuItem watchItem;
     private CheckboxMenuItem notifyItem;
     private volatile boolean notifications = true;
-    private static final Path DEFAULT_VIDEOS_DIR = HOME.resolve("Documents").resolve("Videos");
+    private static final Path DEFAULT_VIDEOS_DIR = Platform.defaultVideosDir();
     private volatile Path videosDir = DEFAULT_VIDEOS_DIR;
     /** One subfolder per site (Videos/Instagram, Videos/YouTube…) instead of everything together. */
     private volatile boolean subfolders = false;
@@ -428,6 +426,12 @@ public final class InstaTray implements WindowHost {
     public static void main(String[] args) throws Exception {
         System.setProperty("apple.awt.UIElement", "true"); // no Dock icon
         System.setProperty("apple.awt.application.appearance", "system"); // title bars and dialogs follow dark mode
+        if (Platform.WINDOWS) { // the painted windows look the same everywhere; folder picker and dialogs look native
+            try {
+                javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
+            } catch (Exception ignored) {
+            }
+        }
         if (!SystemTray.isSupported()) {
             System.err.println("System tray not supported");
             System.exit(1);
@@ -566,7 +570,8 @@ public final class InstaTray implements WindowHost {
         trayIcon = new TrayIcon(icon, "InstaTray", menu);
         trayIcon.setImageAutoSize(true);
 
-        NativeBar nb = NativeBar.start(helperPath(), menu, () -> EventQueue.invokeLater(this::fallBackToAwtTray));
+        if (Platform.WINDOWS) trayIcon.addActionListener(e -> showWindow()); // double-click on the notification-area icon
+        NativeBar nb = Platform.WINDOWS ? null : NativeBar.start(helperPath(), menu, () -> EventQueue.invokeLater(this::fallBackToAwtTray));
         if (nb == null) {
             addAwtTray();
             return;
@@ -803,6 +808,14 @@ public final class InstaTray implements WindowHost {
 
     @Override
     public void chooseVideosDir(Window owner) {
+        if (Platform.WINDOWS) { // FileDialog cannot pick folders on Windows
+            javax.swing.JFileChooser fc = new javax.swing.JFileChooser(videosDir.toFile());
+            fc.setDialogTitle("Elige la carpeta para los videos");
+            fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+            if (fc.showOpenDialog(owner) != javax.swing.JFileChooser.APPROVE_OPTION) return;
+            setVideosDir(fc.getSelectedFile().toPath());
+            return;
+        }
         // Native macOS folder picker
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
         String title = "Elige la carpeta para los videos";
@@ -812,7 +825,10 @@ public final class InstaTray implements WindowHost {
         fd.setVisible(true);
         System.setProperty("apple.awt.fileDialogForDirectories", "false");
         if (fd.getFile() == null) return;
-        Path chosen = Paths.get(fd.getDirectory(), fd.getFile());
+        setVideosDir(Paths.get(fd.getDirectory(), fd.getFile()));
+    }
+
+    private void setVideosDir(Path chosen) {
         videosDir = chosen;
         saveSetting("videosDir", chosen.toString());
         log("Videos folder -> " + chosen);
@@ -827,7 +843,7 @@ public final class InstaTray implements WindowHost {
     static String displayPath(Path p) {
         Path docs = HOME.resolve("Documents");
         if (p.startsWith(docs)) return "Documentos/" + docs.relativize(p);
-        if (p.startsWith(HOME)) return "~/" + HOME.relativize(p);
+        if (p.startsWith(HOME)) return Platform.WINDOWS ? HOME.relativize(p).toString() : "~/" + HOME.relativize(p);
         return p.toString();
     }
 
@@ -1312,6 +1328,13 @@ public final class InstaTray implements WindowHost {
         String script = "tell application \"Terminal\"\n activate\n do script \"clear; echo 'InstaTray: conectar Pixiv (solo una vez)'; "
                 + galleryDl + " oauth:pixiv\"\nend tell";
         try {
+            if (Platform.WINDOWS) {
+                ProcessBuilder pb = new ProcessBuilder(Platform.consoleCommand(true, "InstaTray - conectar Pixiv", galleryDl, "oauth:pixiv"));
+                toolEnvironment(pb);
+                pb.start();
+                log("Opened a console for gallery-dl oauth:pixiv");
+                return;
+            }
             new ProcessBuilder("osascript", "-e", script).start();
             log("Opened Terminal for gallery-dl oauth:pixiv");
         } catch (IOException e) {
@@ -1711,7 +1734,9 @@ public final class InstaTray implements WindowHost {
         cmd.addAll(args);
         cmd.addAll(urls);
         try {
-            Process p = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            ProcessBuilder pb = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.DISCARD);
+            toolEnvironment(pb);
+            Process p = pb.start();
             CompletableFuture.delayedExecutor(20, TimeUnit.SECONDS).execute(p::destroyForcibly);
             List<String> out = new ArrayList<>();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
@@ -1726,8 +1751,12 @@ public final class InstaTray implements WindowHost {
         return null;
     }
 
-    /** The interpreter in the Homebrew formula's shebang (its private venv), or null. */
+    /** The interpreter in the Homebrew formula's shebang (its private venv), or the app's venv on Windows; or null. */
     private static String libraryPython(String tool) {
+        if (Platform.WINDOWS) {
+            Path python = Platform.venvPython(Platform.venv());
+            return Files.isRegularFile(python) ? python.toString() : null;
+        }
         String bin = findBin(tool);
         if (bin == null) return null;
         try (BufferedReader r = Files.newBufferedReader(Paths.get(bin).toRealPath(), StandardCharsets.UTF_8)) {
@@ -1765,7 +1794,7 @@ public final class InstaTray implements WindowHost {
             String bin = findBin(tool);
             if (bin == null && ensureTools()) bin = findBin(tool);
             if (bin == null) {
-                fail(job, name, "Falta " + tool + " y no se pudo instalar con Homebrew (mira el registro)", true);
+                fail(job, name, "Falta " + tool + " y no se pudo instalar (mira el registro)", true);
                 return;
             }
             Files.createDirectories(outDir);
@@ -1829,7 +1858,7 @@ public final class InstaTray implements WindowHost {
             cmd.add(link.url());
 
             ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-            pb.environment().put("PATH", String.join(":", BIN_DIRS));
+            toolEnvironment(pb);
             Process p = pb.start();
             currentProcess = p;
 
@@ -1856,11 +1885,11 @@ public final class InstaTray implements WindowHost {
                             continue; // progress lines are not logged
                         }
                         String trimmed = line.strip();
-                        if (line.startsWith("  /")) {
+                        if (line.startsWith("  ") && Platform.isAbsolutePath(trimmed)) {
                             job.destinations.add(trimmed); // file about to be written
                             job.title = Paths.get(trimmed).getFileName().toString();
                         }
-                        if (trimmed.startsWith("✔ /") || trimmed.startsWith("* /")) {
+                        if ((trimmed.startsWith("✔ ") || trimmed.startsWith("* ")) && Platform.isAbsolutePath(trimmed.substring(2))) {
                             String f = trimmed.substring(2);
                             if (Files.exists(Paths.get(f))) files.add(f);
                         }
@@ -1897,9 +1926,10 @@ public final class InstaTray implements WindowHost {
                     }
                     log("  " + line);
                     job.addOutput(line);
-                    if (line.startsWith("/") && Files.exists(Paths.get(line))) files.add(line);
+                    if (Platform.isAbsolutePath(line) && Files.exists(Paths.get(line))) files.add(line);
                     // gallery-dl marks files it already has with "# "
-                    if (gallery && line.startsWith("# /") && Files.exists(Paths.get(line.substring(2)))) {
+                    if (gallery && line.startsWith("# ") && Platform.isAbsolutePath(line.substring(2))
+                            && Files.exists(Paths.get(line.substring(2)))) {
                         files.add(line.substring(2));
                     }
                     tail.setLength(0);
@@ -2210,6 +2240,78 @@ public final class InstaTray implements WindowHost {
         Files.write(dst, out, StandardCharsets.UTF_8);
     }
 
+    /**
+     * Windows: yt-dlp and gallery-dl go into the app's venv with pip (Python from winget if there is none);
+     * ffmpeg and deno come from winget. With upgrade, everything already there is updated too.
+     * Returns true when every requested tool is there afterwards.
+     */
+    private boolean windowsTools(List<String> tools, boolean upgrade, Consumer<String> say) {
+        Path venv = Platform.venv();
+        boolean ok = true;
+        List<String> venvTools = tools.stream().filter(Platform::inVenv).toList();
+        if (!venvTools.isEmpty()) {
+            if (!Files.isRegularFile(Platform.venvPython(venv))) {
+                String python = findPython();
+                if (python == null) {
+                    say.accept("Instalando Python… (la cola espera)");
+                    String winget = findWinget();
+                    if (winget != null) runInstall(Platform.wingetInstall(winget, Platform.wingetId("python")), "winget install python");
+                    python = findPython();
+                }
+                if (python == null) {
+                    log("No Python to create the tools venv (winget " + (findWinget() == null ? "missing" : "failed") + ")");
+                    return false;
+                }
+                say.accept("Preparando yt-dlp y gallery-dl…");
+                ok = runInstall(List.of(python, "-m", "venv", venv.toString()), "python -m venv " + venv);
+            }
+            List<String> need = upgrade ? venvTools : venvTools.stream().filter(t -> findBin(t) == null).toList();
+            if (ok && !need.isEmpty()) {
+                say.accept((upgrade ? "Actualizando " : "Instalando ") + String.join(", ", need) + "… (la cola espera)");
+                ok = runInstall(Platform.pipInstall(venv, upgrade, need), "pip " + (upgrade ? "upgrade " : "install ") + need);
+            }
+        }
+        List<String> wingetTools = tools.stream().filter(t -> Platform.wingetId(t) != null).toList();
+        if (!wingetTools.isEmpty()) {
+            String winget = findWinget();
+            List<String> missing = wingetTools.stream().filter(t -> findBin(t) == null).toList();
+            if (winget == null) {
+                if (!missing.isEmpty()) log("winget is missing: cannot install " + missing);
+                ok &= missing.isEmpty();
+            } else {
+                for (String t : wingetTools) {
+                    boolean isMissing = missing.contains(t);
+                    if (!isMissing && !upgrade) continue;
+                    say.accept((isMissing ? "Instalando " : "Actualizando ") + t + "… (la cola espera)");
+                    String id = Platform.wingetId(t);
+                    // "no newer version" is a non-zero exit too, so an upgrade only fails if the tool is gone
+                    runInstall(isMissing ? Platform.wingetInstall(winget, id) : Platform.wingetUpgrade(winget, id),
+                            "winget " + (isMissing ? "install " : "upgrade ") + id);
+                    ok &= findBin(t) != null;
+                }
+            }
+        }
+        return ok && tools.stream().allMatch(t -> findBin(t) != null);
+    }
+
+    /** winget.exe is an app-execution alias under WindowsApps: a link that ordinary file checks may not see. */
+    private static String findWinget() {
+        String bin = findBin("winget");
+        if (bin != null) return bin;
+        String local = System.getenv("LOCALAPPDATA");
+        if (local == null) return null;
+        Path alias = Paths.get(local, "Microsoft", "WindowsApps", "winget.exe");
+        return Files.exists(alias, java.nio.file.LinkOption.NOFOLLOW_LINKS) ? alias.toString() : null;
+    }
+
+    /** A real Python 3 to create the venv (never the Microsoft Store shortcut in WindowsApps). */
+    private static String findPython() {
+        for (Path p : Platform.pythonCandidates(Platform.HOME, System.getenv())) {
+            if (Files.isRegularFile(p)) return p.toString();
+        }
+        return null;
+    }
+
     private static String findBrew() {
         for (String b : new String[]{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}) {
             if (Files.isExecutable(Paths.get(b))) return b;
@@ -2239,6 +2341,13 @@ public final class InstaTray implements WindowHost {
             if (findBin(t) == null) missing.add(t);
         }
         if (missing.isEmpty()) return true;
+        if (Platform.WINDOWS) {
+            setStatus("Instalando " + String.join(", ", missing) + "…");
+            boolean ok = windowsTools(missing, false, line -> {});
+            if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
+            setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
+            return findBin("yt-dlp") != null;
+        }
         String brew = findBrew();
         if (brew == null) {
             log("Missing " + missing + " and Homebrew is not installed");
@@ -2248,7 +2357,7 @@ public final class InstaTray implements WindowHost {
         setStatus("Instalando " + String.join(", ", missing) + "…");
         List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
         cmd.addAll(missing);
-        boolean ok = runBrew(cmd, "install " + missing);
+        boolean ok = runInstall(cmd, "install " + missing);
         if (!ok) notify("InstaTray", "No se pudo instalar " + String.join(", ", missing) + " (mira el registro)");
         setStatus(ok ? "Vigilando portapapeles" : "Faltan herramientas — mira el registro");
         return findBin("yt-dlp") != null;
@@ -2270,9 +2379,16 @@ public final class InstaTray implements WindowHost {
             EventQueue.invokeLater(done);
             return;
         }
-        // no lock here: runBrew waits for the running download, which may itself call ensureTools()
+        // no lock here: runInstall waits for the running download, which may itself call ensureTools()
         Thread t = new Thread(() -> {
             try {
+                if (Platform.WINDOWS) {
+                    boolean ok = windowsTools(List.of(TOOLS), true, say);
+                    if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
+                    say.accept(ok && missingTools().isEmpty() ? "Listo: todo instalado y al día ✓"
+                            : "No se pudo completar. Mira el registro (menú del ícono → Ver registro).");
+                    return;
+                }
                 String brew = findBrew();
                 if (brew == null) {
                     HomebrewInstall hb = installHomebrew(say);
@@ -2291,12 +2407,12 @@ public final class InstaTray implements WindowHost {
                         say.accept("Instalando " + String.join(", ", missing) + "… (la cola espera)");
                         List<String> cmd = new ArrayList<>(brewCommand(brew, "install"));
                         cmd.addAll(missing);
-                        ok = runBrew(cmd, "install " + missing);
+                        ok = runInstall(cmd, "install " + missing);
                     }
                     say.accept("Actualizando " + String.join(", ", TOOLS) + "… (la cola espera)");
                     List<String> up = new ArrayList<>(brewCommand(brew, "upgrade"));
                     up.addAll(List.of(TOOLS));
-                    ok &= runBrew(up, "upgrade " + String.join(" ", TOOLS));
+                    ok &= runInstall(up, "upgrade " + String.join(" ", TOOLS));
                     if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
                     say.accept(ok && missingTools().isEmpty() ? "Listo: todo instalado y al día ✓"
                             : "No se pudo completar. Mira el registro (menú de la esfera → Ver registro).");
@@ -2378,37 +2494,44 @@ public final class InstaTray implements WindowHost {
     private void upgradeYtDlpIfStale() {
         long last = Long.parseLong(loadSettings().getProperty("ytdlpUpgradedAt", "0"));
         if (System.currentTimeMillis() - last < UPGRADE_EVERY_MS) return;
+        if (Platform.WINDOWS) {
+            if (!Files.isRegularFile(Platform.venvPython(Platform.venv()))) return;
+            if (runInstall(Platform.pipInstall(Platform.venv(), true, List.of("yt-dlp", "gallery-dl")), "pip upgrade yt-dlp gallery-dl")) {
+                saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
+            }
+            return;
+        }
         String brew = findBrew();
         if (brew == null || findBin("yt-dlp") == null) return;
         if (findBin("gallery-dl") == null) ensureTools();
         // both track sites that change often
-        if (runBrew(brewCommand(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
+        if (runInstall(brewCommand(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
             saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
         }
     }
 
-    /** Runs a Homebrew command with the queue on hold; output goes to the log. */
-    private boolean runBrew(List<String> cmd, String what) {
+    /** Runs an install command (Homebrew, or winget/pip on Windows) with the queue on hold; output goes to the log. */
+    private boolean runInstall(List<String> cmd, String what) {
         toolsBusy = true;
         try {
             // let a download that is already running finish first
             while (current != null) Thread.sleep(1000);
-            log("Homebrew: " + what);
+            log((Platform.WINDOWS ? "Install: " : "Homebrew: ") + what);
             ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-            pb.environment().put("PATH", String.join(":", BIN_DIRS));
+            toolEnvironment(pb);
             // installs skip the slow index refresh; upgrades need it, or brew never sees a newer yt-dlp
-            if (cmd.contains("install")) pb.environment().put("HOMEBREW_NO_AUTO_UPDATE", "1");
+            if (!Platform.WINDOWS && cmd.contains("install")) pb.environment().put("HOMEBREW_NO_AUTO_UPDATE", "1");
             Process p = pb.start();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
-                while ((line = r.readLine()) != null) log("  brew: " + line);
+                while ((line = r.readLine()) != null) log((Platform.WINDOWS ? "  > " : "  brew: ") + line);
             }
             boolean finished = p.waitFor(20, TimeUnit.MINUTES);
             int exit = finished ? p.exitValue() : -1;
-            log("Homebrew " + what + " -> exit " + exit);
+            log((Platform.WINDOWS ? "Install " : "Homebrew ") + what + " -> exit " + exit);
             return exit == 0;
         } catch (Exception e) {
-            log("ERROR Homebrew " + what + ": " + e);
+            log("ERROR " + (Platform.WINDOWS ? "install " : "Homebrew ") + what + ": " + e);
             return false;
         } finally {
             toolsBusy = false;
@@ -2419,11 +2542,22 @@ public final class InstaTray implements WindowHost {
     }
 
     private static String findBin(String name) {
-        for (String dir : BIN_DIRS) {
-            Path p = Paths.get(dir, name);
-            if (Files.isExecutable(p)) return p.toString();
+        for (Path dir : Platform.binDirs()) {
+            for (String file : Platform.exeNames(Platform.WINDOWS, name)) {
+                Path p = dir.resolve(file);
+                if (Files.isRegularFile(p) && Files.isExecutable(p)) return p.toString();
+            }
         }
         return null;
+    }
+
+    /** PATH with the tool folders (yt-dlp finds ffmpeg and deno through it); UTF-8 output from Python on Windows. */
+    private static void toolEnvironment(ProcessBuilder pb) {
+        pb.environment().put("PATH", Platform.pathEnv(Platform.binDirs(), Platform.WINDOWS));
+        if (Platform.WINDOWS) { // the console code page cannot print "✔" or non-Latin titles
+            pb.environment().put("PYTHONUTF8", "1");
+            pb.environment().put("PYTHONIOENCODING", "utf-8");
+        }
     }
 
     // ---------------------------------------------------------------- helpers
@@ -2434,6 +2568,10 @@ public final class InstaTray implements WindowHost {
             return;
         }
         log("Notification: " + title + " — " + text);
+        if (Platform.WINDOWS) { // the tray icon's balloon is a regular Windows notification
+            trayIcon.displayMessage(title, text, TrayIcon.MessageType.INFO);
+            return;
+        }
         String script = "display notification \"" + esc(text) + "\" with title \"" + esc(title) + "\"";
         try {
             new ProcessBuilder("osascript", "-e", script).start();
@@ -2445,16 +2583,30 @@ public final class InstaTray implements WindowHost {
     @Override
     public void revealInFinder(Path file) {
         try {
-            new ProcessBuilder("open", "-R", file.toString()).start();
+            new ProcessBuilder(Platform.revealCommand(Platform.WINDOWS, file.toString())).start();
         } catch (IOException ignored) {
         }
     }
 
     @Override
     public void openUrl(String url) {
+        if (Platform.WINDOWS) {
+            openWithDesktop(url);
+            return;
+        }
         try {
-            new ProcessBuilder("open", url).start();
+            new ProcessBuilder(Platform.openCommand(url)).start();
         } catch (IOException ignored) {
+        }
+    }
+
+    /** Windows: a file or folder opens with its default app, anything else goes to the browser. */
+    private static void openWithDesktop(String target) {
+        try {
+            if (Platform.isAbsolutePath(target)) Desktop.getDesktop().open(new java.io.File(target));
+            else Desktop.getDesktop().browse(URI.create(target));
+        } catch (Exception e) {
+            log("ERROR opening " + target + ": " + e);
         }
     }
 
@@ -2470,8 +2622,12 @@ public final class InstaTray implements WindowHost {
     }
 
     private static void openPath(Path p) {
+        if (Platform.WINDOWS) {
+            openWithDesktop(p.toString());
+            return;
+        }
         try {
-            new ProcessBuilder("open", p.toString()).start();
+            new ProcessBuilder(Platform.openCommand(p.toString())).start();
         } catch (IOException ignored) {
         }
     }

@@ -1,6 +1,6 @@
 # InstaTray
 
-App de barra de menú para macOS, escrita en Java. Vigila el portapapeles y, cuando copias un enlace
+App de barra de menú para macOS **y Windows** (ver "Windows"), escrita en Java. Vigila el portapapeles y, cuando copias un enlace
 de un video de **30 sitios** (Instagram, YouTube, TikTok, X, Twitch, Reddit, Facebook, Pixiv y más) **o de cualquier
 otro sitio que yt-dlp sepa bajar** (más de mil: Niconico, SoundCloud, Archive.org…), lo descarga
 en segundo plano con `yt-dlp` o `gallery-dl`, usando las cookies de ese sitio que tengas en Descargas. Si falta
@@ -17,6 +17,38 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 - **Ventana:** una sola, con todas las descargas (ver "La ventana"). Se abre desde el menú de la esfera (*Mostrar ventana* o *Cola e historial…*), o con doble clic en la app cuando ya está abierta (no abre otra copia). Nunca se abre sola.
 - **Campo "Pega un enlace…":** pega uno o varios enlaces y pulsa Enter o *Descargar*. Es como copiarlos, pero también vuelve a bajar lo ya descargado y prueba el extractor genérico (video embebido) aunque esa opción esté apagada. Si no encuentra un video compatible, lo dice debajo del campo y el texto se queda ahí para corregirlo.
 - **Cerrar la ventana** no cierra el programa. Para salir del todo usa *Salir* en el menú de la esfera.
+
+## Windows
+
+La misma app funciona en Windows 10 y 11, en el **área de notificación** (junto al reloj; si no se ve, está bajo la
+flecha ^). Todo es igual: ventana, Ajustes, filtros, cookies de Descargas, reintentos y avisos.
+
+**Instalar:** `./build.sh` (en el Mac) deja `dist/InstaTray-Windows.zip`. En Windows, descomprímelo y haz doble clic
+en **`Instalar InstaTray.cmd`**. El instalador:
+- instala con **winget** lo que falte: Java 21 (Temurin), Python 3, ffmpeg y deno (winget viene con Windows 10/11;
+  si no está, abre la Microsoft Store en "Instalador de aplicación");
+- pone **yt-dlp y gallery-dl** en un entorno de Python propio (`%LOCALAPPDATA%\InstaTray\tools`), que es lo que
+  permite reconocer "cualquier otro sitio" y el video embebido;
+- copia la app a `%LOCALAPPDATA%\InstaTray`, crea el acceso directo del **menú Inicio** y pregunta si quieres que
+  se abra **al iniciar Windows**; al final la abre.
+
+Volver a abrir el instalador actualiza todo. **`Desinstalar InstaTray.cmd`** quita la app, sus herramientas y los
+accesos directos; no toca tus videos.
+
+**Diferencias con macOS:**
+| | macOS | Windows |
+|---|---|---|
+| Ícono | barra de menús | área de notificación; **doble clic** abre la ventana, **clic derecho** el menú |
+| Videos | `Documentos/Videos` | `Videos\InstaTray` (tu carpeta Videos) |
+| Configuración e historial | `~/Library/Application Support/InstaTray` | `%APPDATA%\InstaTray` |
+| Requisitos | Homebrew | winget + entorno de Python propio |
+| Mostrar el archivo | *Mostrar en Finder* | *Mostrar en carpeta* (Explorador) |
+| Avisos | Centro de notificaciones | notificaciones de Windows |
+| Conectar Pixiv | Terminal | una ventana de consola |
+| Modo oscuro | el de macOS | el de Windows (*Modo de aplicación*) |
+
+La versión de Windows **no se ha probado todavía en un Windows real** (se hizo desde un Mac): las rutas, los
+comandos y los scripts tienen pruebas automáticas, pero si algo falla, mira `%APPDATA%\InstaTray\instatray.log`.
 
 ## Ícono
 
@@ -267,7 +299,7 @@ Si el programa está abierto, ciérralo antes de recompilar (*Salir*, o `pkill -
 
 ```
 InstaTray/
-├── build.sh               # compila y arma la .app + acceso directo
+├── build.sh               # compila y arma la .app + acceso directo, y dist/InstaTray-Windows.zip
 ├── test.sh                # compila y corre las pruebas de test/
 ├── src/
 │   ├── InstaTray.java     # bandeja, portapapeles, sitios, cola, descargas, ajustes
@@ -281,12 +313,15 @@ InstaTray/
 │   ├── AeroIcon.java      # dibujo de los íconos por estado (y el .iconset)
 │   ├── NativeBar.java     # maneja el ayudante nativo de la barra de menús
 │   ├── InstaTrayBar.swift # ayudante nativo: el ícono y su menú en la barra (build.sh lo compila con swiftc)
+│   ├── Platform.java      # lo que cambia entre macOS y Windows: carpetas, herramientas, abrir cosas
 │   ├── launcher.sh        # lanzador del .app: instala lo que falte y arranca Java
 │   └── setup.command      # instalador de Homebrew + requisitos (se abre en Terminal)
 ├── icon.png               # ícono de la app 1024 px (generado)
 ├── icon-states.png        # vista previa de estados (java AeroIcon --preview <png>)
 ├── icon-palettes.png      # color de cada sitio (java AeroIcon --palettes <png>)
+├── windows/               # instalador y desinstalador de Windows (van dentro del zip)
 ├── build/                 # generado
+├── dist/                  # generado: InstaTray-Windows.zip
 └── InstaTray.app          # generado
 ```
 

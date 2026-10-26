@@ -25,7 +25,7 @@ final class JobView {
     }
 
     enum Action {
-        CANCEL("Cancelar"), TOP("Poner primero"), REMOVE("Quitar"), PLAY("Ver"), REVEAL("Mostrar en Finder"),
+        CANCEL("Cancelar"), TOP("Poner primero"), REMOVE("Quitar"), PLAY("Ver"), REVEAL(Platform.revealLabel(Platform.WINDOWS)),
         OPEN_PAGE("Abrir página"), RETRY("Reintentar"), DELETE("Borrar de la lista");
 
         final String label;

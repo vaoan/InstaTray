@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Light and dark Liquid Glass colours for the hand-painted windows; Glass paints the surfaces, following the macOS appearance. The appearance is read at
+ * Light and dark Liquid Glass colours for the hand-painted windows; Glass paints the surfaces, following the system appearance. The appearance is read at
  * startup and, while the window is visible, every few seconds by its poll (never by a thread of its own).
  */
 final class Theme {
@@ -64,11 +64,15 @@ final class Theme {
         for (Runnable r : listeners) EventQueue.invokeLater(r);
     }
 
-    /** `defaults read -g AppleInterfaceStyle` prints "Dark" in dark mode and fails in light mode. */
+    /**
+     * macOS: `defaults read -g AppleInterfaceStyle` prints "Dark" in dark mode and fails in light mode.
+     * Windows: the registry's AppsUseLightTheme is 0 in dark mode.
+     */
     private static boolean readSystemDark() {
         try {
-            Process p = new ProcessBuilder("defaults", "read", "-g", "AppleInterfaceStyle").redirectErrorStream(true).start();
+            Process p = new ProcessBuilder(Platform.darkModeQuery(Platform.WINDOWS)).redirectErrorStream(true).start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (Platform.WINDOWS) return p.waitFor() == 0 && Platform.parseWindowsDark(out);
             return p.waitFor() == 0 && out.equalsIgnoreCase("Dark");
         } catch (IOException e) {
             return false;

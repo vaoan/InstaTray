@@ -59,6 +59,15 @@ EOF
 
 echo "Built $(pwd)/InstaTray.app"
 
+# Windows package: the same jar + an .ico + the installer scripts (windows/), zipped
+WIN=dist/InstaTray-Windows
+rm -rf dist
+mkdir -p "$WIN"
+cp build/InstaTray.jar windows/* "$WIN/"
+"$JAVA" -cp build/classes -Djava.awt.headless=true AeroIcon --ico "$WIN/InstaTray.ico"
+(cd dist && zip -qr InstaTray-Windows.zip InstaTray-Windows)
+echo "Built $(pwd)/dist/InstaTray-Windows.zip"
+
 codesign --force --deep -s - InstaTray.app
 
 # Double-click shortcut in ~/Documents

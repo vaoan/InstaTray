@@ -1,6 +1,6 @@
 # InstaTray — notes for Claude
 
-macOS menu-bar app (Java/AWT + Swing) that watches the clipboard for video links of 30 sites (`enum Site` +
+macOS menu-bar app (Java/AWT + Swing), also Windows (notification area; see "Windows" below), that watches the clipboard for video links of 30 sites (`enum Site` +
 `RULES` table in InstaTray.java) and downloads them through its own ordered queue with one of two engines
 (`Site.engine`): yt-dlp for video sites, gallery-dl for artists' own platforms (Pixiv, FANBOX, Fantia, DeviantArt,
 Misskey, Mastodon). Two catch-all sites (`OTHER` = yt-dlp, `OTHER_GALLERY` = gallery-dl limited to
@@ -22,7 +22,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   row each (title + grey help left, control right: `DownloadsWindow.Switch`, `Choice` pill menu, `PillButton`;
   menus and "Cambiar…" share `CONTROL_W`). Folder, clipboard, embeds, retries, notifications, cookie status,
   "Instalar o actualizar" (`installTools`: brew install missing + brew upgrade the four tools; no lock —
-  runBrew waits for the running download, which may call ensureTools). No Homebrew → the button installs it too
+  runInstall waits for the running download, which may call ensureTools). No Homebrew → the button installs it too
   (user request): latest release's `Homebrew.pkg` (`homebrewPkgUrl`, github.com only) via `osascript … installer -pkg
   … with administrator privileges` (native password dialog); setup.command in Terminal only if that fails.
 - `src/JobView.java` — pure presentation rules (filters, row actions, grey status line, footer, empty texts); tested.
@@ -42,6 +42,13 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (`click <index>`). Must stay variable-length: a fixed length drew the click highlight off-centre (user noticed). The AWT PopupMenu stays the model,
   mirrored by a 500 ms EDT timer; clicks fire the AWT item's listeners. Helper missing or dead → AWT TrayIcon.
   Icon size unchanged (user: "el icono que se mantenga como estaba").
+- `src/Platform.java` — everything macOS/Windows-specific, pure and tested with the OS as an argument
+  (`PlatformTest`): state dir, default videos dir, tool lookup dirs + exe names, PATH for tools, absolute-path
+  detection in tool output (`C:\`, UNC), Windows dark mode from the registry, reveal/open/console commands,
+  winget ids and pip commands.
+- `windows/` — `install.ps1` / `uninstall.ps1` (UTF-8 **with BOM**: PowerShell 5.1 reads BOM-less files as ANSI)
+  + `.cmd` double-click wrappers; build.sh zips them with the jar and `AeroIcon --ico` into
+  `dist/InstaTray-Windows.zip` (git-ignored). Parse-check: `pwsh` is installed via Homebrew.
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is
   missing (log: `setup.log`), then starts java detached. No Homebrew → dialog + `setup.command` in Terminal (official
   installer needs the admin password). Test hooks: `INSTATRAY_FORCE_INSTALL="deno"`, `INSTATRAY_FAKE_NO_BREW=1`.
@@ -100,6 +107,18 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Window link field (`WindowHost.submit`) and tray "Descargar enlace copiado ahora" call `handleText(text, force=true)`:
   re-download allowed and EMBED allowed even with `embeds` off (`probeLibraries(urls, embeds || force)`). Control channel `get TEXT` does the same.
 
+## Windows
+- User asked for Windows support (2026-10-26). Never tested on a real Windows (no VM on this M1): keep the logic in
+  `Platform` with unit tests, and preview with `java -Dos.name="Windows 11" … DownloadsWindow --preview DIR`.
+- Tools: Java/Python/ffmpeg/deno via winget (`windowsTools()`); yt-dlp + gallery-dl in the app's venv
+  `%LOCALAPPDATA%\InstaTray\tools` (pip), because the catch-all probes import their Python packages — the standalone
+  .exe builds can't run them. `libraryPython()` = the venv's python.exe on Windows. Never use the python.exe under
+  WindowsApps (Store alias); `findWinget()` checks that alias explicitly (file checks may not see it).
+- Tool processes get `PYTHONUTF8=1` (gallery-dl's "✔" and non-Latin titles), PATH joined with ";".
+- AWT TrayIcon only (no native helper); double-click opens the window; notifications = `displayMessage`;
+  folder picker = JFileChooser (FileDialog can't pick folders); system LookAndFeel only on Windows.
+- `REVEAL` label "Mostrar en carpeta" ("Mostrar en el Explorador" was cut off in the button column).
+
 ## Adding a site
 1. `Site` entry (engine, label, yt-dlp filename template, cookie-file keys — keys with a dot must start the file name —,
    cookie domains). Only creator-owned platforms or video sites; never re-upload aggregators.
@@ -147,7 +166,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Keep `-S vcodec:h264,res,acodec:aac` + `--recode-video mp4` (M1 can't play AV1/VP9/webm in QuickTime; recode only
   runs when the file isn't mp4 already), `--no-playlist`, `--match-filter !is_live`; channel/live URLs never match.
 - Requirements are installed automatically (user request). In-app: `ensureTools()` (missing tools) and a weekly
-  `brew upgrade yt-dlp`; both go through `runBrew()`, which sets `toolsBusy` so the worker doesn't start downloads.
+  `brew upgrade yt-dlp`; both go through `runInstall()`, which sets `toolsBusy` so the worker doesn't start downloads.
   `HOMEBREW_NO_AUTO_UPDATE=1` only for installs — an upgrade needs the index refresh to see new versions.
 - Compiled with `--release 21` so any recent Homebrew openjdk runs it; the launcher resolves java via `brew --prefix`.
 - YouTube needs `deno` on PATH and the user's YouTube cookies (without them YouTube answers "confirm you're not a bot").

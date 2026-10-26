@@ -269,11 +269,16 @@ public final class AeroIcon {
 
     /**
      * iconutil PNG set: AeroIcon <iconset-dir>
+     * Windows icon: AeroIcon --ico <file.ico>
      * Preview sheet of every state: AeroIcon --preview <file.png>
      */
     public static void main(String[] args) throws Exception {
         if (args[0].equals("--preview")) {
             writePreview(new File(args[1]));
+            return;
+        }
+        if (args[0].equals("--ico")) {
+            writeIco(new File(args[1]), 16, 24, 32, 48, 64, 128, 256);
             return;
         }
         if (args[0].equals("--palettes")) {
@@ -287,6 +292,29 @@ public final class AeroIcon {
             ImageIO.write(render(sz), "png", new File(dir, "icon_" + sz + "x" + sz + ".png"));
             ImageIO.write(render(sz * 2), "png", new File(dir, "icon_" + sz + "x" + sz + "@2x.png"));
         }
+    }
+
+    /** Windows icon (shortcut, installer): one PNG-compressed idle icon per size, as Vista and later read them. */
+    static void writeIco(File out, int... sizes) throws java.io.IOException {
+        java.util.List<byte[]> pngs = new java.util.ArrayList<>();
+        for (int sz : sizes) {
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            ImageIO.write(render(sz), "png", png);
+            pngs.add(png.toByteArray());
+        }
+        int header = 6 + 16 * sizes.length, total = header;
+        for (byte[] p : pngs) total += p.length;
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(total).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        b.putShort((short) 0).putShort((short) 1).putShort((short) sizes.length);
+        int offset = header;
+        for (int i = 0; i < sizes.length; i++) {
+            int sz = sizes[i] >= 256 ? 0 : sizes[i]; // 0 means 256
+            b.put((byte) sz).put((byte) sz).put((byte) 0).put((byte) 0)
+                    .putShort((short) 1).putShort((short) 32).putInt(pngs.get(i).length).putInt(offset);
+            offset += pngs.get(i).length;
+        }
+        for (byte[] p : pngs) b.put(p);
+        java.nio.file.Files.write(out.toPath(), b.array());
     }
 
     /** Every site color at menu-bar size and large, with its name, to check they are told apart. */

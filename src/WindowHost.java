@@ -81,7 +81,7 @@ interface WindowHost {
 
     /**
      * Installs what is missing and upgrades all the tools with Homebrew (or opens the Homebrew installer in Terminal
-     * when there is no Homebrew). Runs in the background; progress and done run on the EDT.
+     * when there is no Homebrew); on Windows with winget and the app's own Python venv. Runs in the background; progress and done run on the EDT.
      */
     void installTools(Consumer<String> progress, Runnable done);
 

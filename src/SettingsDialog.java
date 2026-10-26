@@ -71,7 +71,8 @@ final class SettingsDialog {
         tools.setFont(BASE);
         tools.setText("Revisando…");
         card(root, "Requisitos",
-                option(tools, help("Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."),
+                option(tools, help(Platform.WINDOWS ? "Instala lo que falte con winget y actualiza yt-dlp, gallery-dl, ffmpeg y deno."
+                        : "Instala lo que falte con Homebrew y actualiza yt-dlp, gallery-dl, ffmpeg y deno."),
                         install));
 
         subfolders.onToggle = () -> flip(subfolders, host::setSubfolders);
