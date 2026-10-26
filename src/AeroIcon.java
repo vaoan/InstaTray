@@ -142,14 +142,11 @@ public final class AeroIcon {
 
         if (badge == null) drawArrow(g, x, y, d, small);
 
-        // Specular rim: brightest top-left, but the right edge stays as defined as the left one (a dim right edge
-        // melts into a dark menu bar and reads as extra margin on that side)
+        // Rim: one even white all around, so no side looks lighter or wider than the other (user asked for it)
         float rimW = Math.max(1f, d * (small ? 0.045f : 0.022f));
         float in = rimW / 2;
         g.setStroke(new BasicStroke(rimW));
-        g.setPaint(new LinearGradientPaint(new Point2D.Float(x, y + d / 2), new Point2D.Float(x + d, y + d / 2),
-                new float[]{0f, 0.5f, 1f}, new Color[]{new Color(255, 255, 255, 235),
-                new Color(255, 255, 255, 110), new Color(255, 255, 255, 235)}));
+        g.setColor(new Color(255, 255, 255, 190));
         g.draw(squircle(x + in, y + in, d - in * 2));
 
         // Count goes on top so it stays readable in the menu bar

@@ -652,7 +652,7 @@ public final class InstaTray implements WindowHost {
             }
             case "tooltip" -> { return lastTooltip; }
             case "get" -> { return handleText(arg, true) ? "ok" : "no supported link"; } // like the window field
-            case "menu" -> { // opens the menu-bar menu as a click would (to capture the highlight)
+            case "menu" -> { // opens the menu-bar menu as a click would, or closes it (to capture the highlight)
                 NativeBar b = bar;
                 if (b == null) return "no native bar";
                 b.open();

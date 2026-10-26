@@ -125,7 +125,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Tray badge: **1 pending → download percent with a small superscript "%"** (badge text "45%"; `drawBadge` keeps the
   digits full size); **≥2 pending → pending count, no "%"** (`9+` cap). The "%" is what tells the two apart. The fill level always shows the
   current download's progress (washed-out tile filling with saturated color bottom→top, meniscus line).
-- Every icon variant is a Liquid Glass squircle tile (superellipse, top-left light, specular rim). Idle = aqua tile +
+- Every icon variant is a Liquid Glass squircle tile (superellipse, top-left light, rim one even white all around — user asked). Idle = aqua tile +
   white download arrow (also the .app
   icon). Busy = active site's palette. Instagram (multicolor, yellow-orange bottom → violet-blue top) and YouTube
   (flat single-tone red) must stay clearly distinct at 22pt. Site colors only, never logos.
@@ -158,8 +158,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 menu-bar item from the Swift CGWindowList list below (2 px per point). System Events may still be denied. Also:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
   `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`,
-  `remove KEY` (out of the list, like the row 🗑 / "Quitar"), `menu` (opens the menu-bar menu: capture the click
-  highlight); an empty line shows the window.
+  `remove KEY` (out of the list, like the row 🗑 / "Quitar"), `menu` (opens the menu-bar menu, again closes it: capture the
+  click highlight); an empty line shows the window.
 - **Window renders**: `java -cp build/test-classes DownloadsWindow --preview DIR` (light, dark, Fallidas filter,
   Detalles, empty) and `SettingsDialog --preview DIR`, after `./test.sh` compiled them. Read the PNGs.
 - **Log**: `updateTrayIcon()` logs `Tray icon -> PALETTE:badge:fillStep`; cleanup logs `Deleted partial …`.
