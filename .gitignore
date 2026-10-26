@@ -5,3 +5,4 @@ InstaTray.app/
 # Local noise
 .DS_Store
 *.log
+.superpowers/
