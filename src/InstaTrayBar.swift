@@ -3,6 +3,7 @@
 //   icon <base64 png>     44×44 px, shown at 22×22 pt (2x)
 //   tip <text>            tooltip
 //   menu <n>              followed by n lines, each "item <tag> <enabled 0|1> <checked -1|0|1> <label>" or "sep"
+//   open                  opens the menu as a click would (for tests)
 // It writes "click <tag>" to stdout when a menu item is chosen, and exits when stdin closes (the app quit or died).
 import AppKit
 
@@ -28,6 +29,8 @@ final class Bar: NSObject {
             guard parts.count > 1, let data = Data(base64Encoded: parts[1]), let image = NSImage(data: data) else { return }
             image.size = NSSize(width: Bar.size, height: Bar.size)
             item.button?.image = image
+        case "open": // as if clicked (lets tests capture the highlight and the open menu)
+            item.button?.performClick(nil)
         case "tip":
             item.button?.toolTip = parts.count > 1 ? parts[1] : nil
         case "menu":

@@ -38,7 +38,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - `src/NativeBar.java` + `src/InstaTrayBar.swift` (→ `Contents/Resources/InstaTrayBar`, built by `swiftc` in build.sh):
   the menu-bar item drawn natively (user wanted the least margin: TrayIcon is 45pt wide = 21pt + Java's fixed 12pt
   each side; native variable-length item around the 22pt icon = 38pt, the 8pt each side is macOS's own item spacing). Line protocol on
-  stdin (`icon` base64 PNG, `tip`, `menu` snapshot) / stdout (`click <index>`). The AWT PopupMenu stays the model,
+  stdin (`icon` base64 PNG, `tip`, `menu` snapshot, `open` = click it, for capturing the highlight) / stdout
+  (`click <index>`). Must stay variable-length: a fixed length drew the click highlight off-centre (user noticed). The AWT PopupMenu stays the model,
   mirrored by a 500 ms EDT timer; clicks fire the AWT item's listeners. Helper missing or dead → AWT TrayIcon.
   Icon size unchanged (user: "el icono que se mantenga como estaba").
 - `src/launcher.sh` → `Contents/MacOS/InstaTray`: checks Homebrew/openjdk/yt-dlp/ffmpeg/deno, `brew install`s what is
