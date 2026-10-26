@@ -394,31 +394,24 @@ public final class InstaTray implements WindowHost {
     private volatile String lastClip = "";
     /** Newest first. Guarded by itself. */
     private final List<Job> jobs = new ArrayList<>();
-    private HistoryWindow history;
+    private DownloadsWindow downloads;
+    private SettingsDialog settingsDialog;
 
     private TrayIcon trayIcon;
     private MenuItem statusItem;
     private MenuItem cookiesItem;
     private CheckboxMenuItem watchItem;
     private CheckboxMenuItem notifyItem;
-    private JFrame window;
-    private JLabel winStatus;
-    private JLabel winCookies;
-    private JCheckBox winWatch;
-    private JCheckBox winNotify;
     private volatile boolean notifications = true;
     private static final Path DEFAULT_VIDEOS_DIR = HOME.resolve("Documents").resolve("Videos");
     private volatile Path videosDir = DEFAULT_VIDEOS_DIR;
     /** One subfolder per site (Videos/Instagram, Videos/YouTube…) instead of everything together. */
     private volatile boolean subfolders = false;
-    private JLabel winFolder;
-    private JCheckBox winSubfolders;
     private CheckboxMenuItem subfoldersItem;
     private CheckboxMenuItem pauseItem;
     /** Opt-in: pages no extractor knows go to yt-dlp's Generic extractor (embedded players, HLS, <video>). */
     private volatile boolean embeds = false;
     private CheckboxMenuItem embedsItem;
-    private JCheckBox winEmbeds;
     private volatile int maxRetries = 2;
     private volatile int retryDelaySec = 30;
     /** Downloads window: the "Detalles" panel is open. */
@@ -468,8 +461,9 @@ public final class InstaTray implements WindowHost {
 
         EventQueue.invokeAndWait(() -> {
             buildTray();
-            buildWindow(); // stays hidden: the app starts silently in the menu bar
-            history = new HistoryWindow(this);
+            // stays hidden: the app starts silently in the menu bar
+            downloads = new DownloadsWindow(this, () -> settingsDialog.open());
+            settingsDialog = new SettingsDialog(downloads.frame(), this);
         });
         // Double-click on the app while it is already running -> show the window again
         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.APP_EVENT_REOPENED)) {
@@ -532,7 +526,7 @@ public final class InstaTray implements WindowHost {
         menu.add(embedsItem);
 
         MenuItem hist = new MenuItem("Cola e historial…");
-        hist.addActionListener(e -> history.show());
+        hist.addActionListener(e -> showWindow());
         menu.add(hist);
 
         pauseItem = new CheckboxMenuItem("Pausar cola", false);
@@ -568,146 +562,6 @@ public final class InstaTray implements WindowHost {
         } catch (AWTException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private void buildWindow() {
-        window = new JFrame("InstaTray");
-        window.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE); // closing only hides; app keeps running
-        window.setIconImage(AeroIcon.render(256));
-
-        JPanel root = new JPanel();
-        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
-
-        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        header.add(new JLabel(new ImageIcon(AeroIcon.render(64))));
-        JLabel title = new JLabel("<html><b style='font-size:15px'>InstaTray</b><br>"
-                + "Copia el enlace de un video (Instagram, YouTube, TikTok, X, "
-                + (NAMED_SITES.size() - 4) + " sitios más y cualquier otro que yt-dlp reconozca) y se descarga solo.</html>");
-        header.add(title);
-        header.setAlignmentX(Component.LEFT_ALIGNMENT);
-        root.add(header);
-        root.add(Box.createVerticalStrut(14));
-
-        // Links typed or pasted here: same as copying them, plus the generic extractor even with "embeds" off
-        JPanel urlRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        urlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JTextField urlField = new JTextField(38);
-        urlField.setToolTipText("Pega uno o varios enlaces y pulsa Enter");
-        JButton get = new JButton("Descargar");
-        Runnable submit = () -> {
-            String text = urlField.getText().trim();
-            if (text.isEmpty()) return;
-            urlField.setText("");
-            poller.execute(() -> {
-                if (!handleText(text, true)) {
-                    setStatus("Ese enlace no tiene un video compatible");
-                    EventQueue.invokeLater(() -> {
-                        if (urlField.getText().isEmpty()) urlField.setText(text); // let the user fix it
-                    });
-                }
-            });
-        };
-        urlField.addActionListener(e -> submit.run());
-        get.addActionListener(e -> submit.run());
-        urlRow.add(new JLabel("Enlace: "));
-        urlRow.add(urlField);
-        urlRow.add(Box.createHorizontalStrut(6));
-        urlRow.add(get);
-        root.add(urlRow);
-        root.add(Box.createVerticalStrut(10));
-
-        winStatus = new JLabel("Estado: iniciando…");
-        winCookies = new JLabel("Cookies: buscando en Descargas…");
-        for (JLabel l : new JLabel[]{winStatus, winCookies}) {
-            l.setAlignmentX(Component.LEFT_ALIGNMENT);
-            root.add(l);
-            root.add(Box.createVerticalStrut(4));
-        }
-
-        JPanel folderRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        folderRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        winFolder = new JLabel();
-        JButton change = new JButton("Cambiar…");
-        change.addActionListener(e -> chooseVideosDir(window));
-        folderRow.add(winFolder);
-        folderRow.add(Box.createHorizontalStrut(8));
-        folderRow.add(change);
-        root.add(folderRow);
-        updateFolderLabel();
-
-        winSubfolders = new JCheckBox("Una subcarpeta por red social (Instagram, YouTube, X, Twitch)", subfolders);
-        winSubfolders.setAlignmentX(Component.LEFT_ALIGNMENT);
-        winSubfolders.addActionListener(e -> setSubfolders(winSubfolders.isSelected()));
-        root.add(winSubfolders);
-
-        winEmbeds = new JCheckBox("Buscar video embebido en otras páginas (reproductores, HLS, <video>)", embeds);
-        winEmbeds.setAlignmentX(Component.LEFT_ALIGNMENT);
-        winEmbeds.addActionListener(e -> setEmbeds(winEmbeds.isSelected()));
-        root.add(winEmbeds);
-
-        JPanel retryRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        retryRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JComboBox<Integer> retries = new JComboBox<>(new Integer[]{0, 1, 2, 3, 4, 5});
-        retries.setSelectedItem(maxRetries);
-        retries.addActionListener(e -> {
-            setMaxRetries((Integer) retries.getSelectedItem());
-        });
-        JComboBox<Integer> delay = new JComboBox<>(RETRY_DELAYS);
-        delay.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> l, Object v, int i, boolean sel, boolean f) {
-                int sec = (Integer) v;
-                return super.getListCellRendererComponent(l, sec < 60 ? sec + " s" : sec / 60 + " min", i, sel, f);
-            }
-        });
-        delay.setSelectedItem(retryDelaySec);
-        delay.addActionListener(e -> {
-            setRetryDelaySec((Integer) delay.getSelectedItem());
-        });
-        retryRow.add(new JLabel("Si falla, reintentar en silencio "));
-        retryRow.add(retries);
-        retryRow.add(new JLabel(" veces, esperando "));
-        retryRow.add(delay);
-        retryRow.add(new JLabel(" (más cada vez)"));
-        root.add(Box.createVerticalStrut(4));
-        root.add(retryRow);
-
-        winWatch = new JCheckBox("Vigilar portapapeles", true);
-        winWatch.setAlignmentX(Component.LEFT_ALIGNMENT);
-        winWatch.addActionListener(e -> setWatching(winWatch.isSelected()));
-        root.add(Box.createVerticalStrut(6));
-        root.add(winWatch);
-
-        winNotify = new JCheckBox("Avisar con una notificación si una descarga falla", notifications);
-        winNotify.setAlignmentX(Component.LEFT_ALIGNMENT);
-        winNotify.addActionListener(e -> setNotifications(winNotify.isSelected()));
-        root.add(winNotify);
-        root.add(Box.createVerticalStrut(10));
-
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        buttons.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JButton now = new JButton("Descargar copiado");
-        now.addActionListener(e -> downloadClipboardNow());
-        JButton hist = new JButton("Cola e historial");
-        hist.addActionListener(e -> history.show());
-        JButton folder = new JButton("Abrir carpeta");
-        folder.addActionListener(e -> openPath(videosDir));
-        JButton quit = new JButton("Salir");
-        quit.addActionListener(e -> {
-            SystemTray.getSystemTray().remove(trayIcon);
-            System.exit(0);
-        });
-        buttons.add(now);
-        buttons.add(hist);
-        buttons.add(folder);
-        buttons.add(quit);
-        root.add(buttons);
-
-        window.setContentPane(root);
-        window.pack();
-        window.setResizable(false);
-        window.setLocationRelativeTo(null);
     }
 
     private void listenForOtherInstances(ServerSocket server) {
@@ -760,13 +614,7 @@ public final class InstaTray implements WindowHost {
     }
 
     private void showWindow() {
-        window.setVisible(true);
-        window.setState(Frame.NORMAL);
-        window.toFront();
-        try {
-            Desktop.getDesktop().requestForeground(true);
-        } catch (Exception ignored) {
-        }
+        downloads.show(JobView.Filter.ALL);
     }
 
     @Override
@@ -774,7 +622,6 @@ public final class InstaTray implements WindowHost {
         watching = on;
         EventQueue.invokeLater(() -> {
             watchItem.setState(on);
-            winWatch.setSelected(on);
         });
         poller.execute(() -> setStatus(on ? "Vigilando portapapeles" : "En pausa"));
     }
@@ -784,7 +631,6 @@ public final class InstaTray implements WindowHost {
         notifications = on;
         EventQueue.invokeLater(() -> {
             notifyItem.setState(on);
-            winNotify.setSelected(on);
         });
         saveSetting("notifications", String.valueOf(on));
         log("Notifications " + (on ? "on" : "off"));
@@ -795,8 +641,6 @@ public final class InstaTray implements WindowHost {
         subfolders = on;
         EventQueue.invokeLater(() -> {
             subfoldersItem.setState(on);
-            winSubfolders.setSelected(on);
-            updateFolderLabel();
         });
         saveSetting("subfolders", String.valueOf(on));
         log("Subfolders " + (on ? "on" : "off"));
@@ -807,7 +651,6 @@ public final class InstaTray implements WindowHost {
         embeds = on;
         EventQueue.invokeLater(() -> {
             embedsItem.setState(on);
-            winEmbeds.setSelected(on);
         });
         saveSetting("embeds", String.valueOf(on));
         log("Embedded-video pages " + (on ? "on" : "off"));
@@ -904,7 +747,9 @@ public final class InstaTray implements WindowHost {
     public void chooseVideosDir(Window owner) {
         // Native macOS folder picker
         System.setProperty("apple.awt.fileDialogForDirectories", "true");
-        FileDialog fd = new FileDialog(owner instanceof Frame f ? f : null, "Elige la carpeta para los videos", FileDialog.LOAD);
+        String title = "Elige la carpeta para los videos";
+        FileDialog fd = owner instanceof Dialog d ? new FileDialog(d, title, FileDialog.LOAD)
+                : new FileDialog(owner instanceof Frame f ? f : null, title, FileDialog.LOAD);
         fd.setDirectory(videosDir.toString());
         fd.setVisible(true);
         System.setProperty("apple.awt.fileDialogForDirectories", "false");
@@ -912,12 +757,7 @@ public final class InstaTray implements WindowHost {
         Path chosen = Paths.get(fd.getDirectory(), fd.getFile());
         videosDir = chosen;
         saveSetting("videosDir", chosen.toString());
-        updateFolderLabel();
         log("Videos folder -> " + chosen);
-    }
-
-    private void updateFolderLabel() {
-        winFolder.setText("Videos en: " + displayPath(videosDir) + (subfolders ? "/<red social>" : ""));
     }
 
     /** Folder for a site's videos, created on demand. */
@@ -1047,8 +887,6 @@ public final class InstaTray implements WindowHost {
         EventQueue.invokeLater(() -> {
             statusItem.setLabel(text);
             cookiesItem.setLabel(cookies);
-            winStatus.setText("Estado: " + text);
-            winCookies.setText(cookies);
         });
     }
 
@@ -1186,7 +1024,7 @@ public final class InstaTray implements WindowHost {
         }
     }
 
-    /** Re-runs a finished or failed job (from the history window). */
+    /** Re-runs a finished or failed job (from the downloads window). */
     @Override
     public void retry(Job job) {
         if (!job.isFinished()) return;
@@ -1199,13 +1037,6 @@ public final class InstaTray implements WindowHost {
         synchronized (jobs) {
             return new ArrayList<>(jobs);
         }
-    }
-
-    void clearFinishedJobs() {
-        synchronized (jobs) {
-            jobs.removeIf(Job::isFinished);
-        }
-        saveJobs();
     }
 
     // ---------------------------------------------------------------- queue
@@ -2415,7 +2246,7 @@ public final class InstaTray implements WindowHost {
     // ---------------------------------------------------------------- helpers
 
     private void notify(String title, String text) {
-        if (!notifications) { // the tray icon and the window status still show progress
+        if (!notifications) { // the tray icon and the window still show progress
             log("Notification muted: " + title + " — " + text);
             return;
         }
@@ -2442,10 +2273,6 @@ public final class InstaTray implements WindowHost {
             new ProcessBuilder("open", url).start();
         } catch (IOException ignored) {
         }
-    }
-
-    void openDocuments() {
-        openPath(videosDir);
     }
 
     /** Copies text without the clipboard watcher treating it as a new link to download. */
