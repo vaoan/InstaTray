@@ -171,12 +171,15 @@ final class JobView {
 
     static final int RIGHT_INSET = 14, BUTTON_W = 150, BUTTON_H = 24, GAP = 6, TRASH_W = 26;
 
-    /** [primary, secondary, trash] in a row of this size: the same column for every row. */
+    /**
+     * [primary, secondary, trash] in a row of this size: the same column for every row. Left to right: icon, blue,
+     * plain, so the two wide buttons end flush with the window edge like the toolbar's (user asked for it).
+     */
     static Rectangle[] buttonBounds(int rowWidth, int rowHeight) {
         int y = (rowHeight - BUTTON_H) / 2;
-        int trashX = rowWidth - RIGHT_INSET - TRASH_W;
-        int secondX = trashX - GAP - BUTTON_W;
+        int secondX = rowWidth - RIGHT_INSET - BUTTON_W;
         int firstX = secondX - GAP - BUTTON_W;
+        int trashX = firstX - GAP - TRASH_W;
         return new Rectangle[]{
                 new Rectangle(firstX, y, BUTTON_W, BUTTON_H),
                 new Rectangle(secondX, y, BUTTON_W, BUTTON_H),

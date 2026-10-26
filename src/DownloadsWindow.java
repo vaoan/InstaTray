@@ -139,7 +139,7 @@ final class DownloadsWindow {
 
         // the two buttons sit exactly over the rows' blue and plain columns (JobView.buttonBounds)
         GlassPanel toolbar = new GlassPanel(GlassPanel.Kind.TOOLBAR, new BorderLayout(12, 0));
-        toolbar.setBorder(new EmptyBorder(12, 14, 11, JobView.RIGHT_INSET + JobView.TRASH_W + JobView.GAP));
+        toolbar.setBorder(new EmptyBorder(12, 14, 11, JobView.RIGHT_INSET));
         field.setFont(BASE);
         field.addActionListener(e -> submit());
         toolbar.add(field, BorderLayout.CENTER);
@@ -154,9 +154,10 @@ final class DownloadsWindow {
         top.add(toolbar, BorderLayout.NORTH);
 
         GlassPanel band = new GlassPanel(GlassPanel.Kind.BAND, new BorderLayout());
-        band.setBorder(new EmptyBorder(9, 14, 9, 14));
+        // FlowLayout puts its 6px gap before the first chip too: 14 - 6 lines the chips up with the field and the icons
+        band.setBorder(new EmptyBorder(9, 14 - 6, 9, 14));
         fieldMessage.setFont(SMALL);
-        fieldMessage.setBorder(new EmptyBorder(0, 2, 4, 0));
+        fieldMessage.setBorder(new EmptyBorder(0, 6 + 2, 4, 0));
         fieldMessage.setVisible(false); // only takes room while it has something to say
         band.add(fieldMessage, BorderLayout.NORTH);
         chips.setOpaque(false);
@@ -658,8 +659,8 @@ final class DownloadsWindow {
 
             Rectangle[] b = JobView.buttonBounds(w, h);
             int textX = 14 + 28 + 12;
-            // no blue button (downloading): text and progress bar take its column too
-            int textW = (JobView.primary(job) == null ? b[1].x : b[0].x) - 12 - textX;
+            // text and progress bar end before the icon button, the leftmost column
+            int textW = b[2].x - 12 - textX;
             g.setFont(BOLD);
             g.setColor(p.text());
             JobView.Bar barMode = JobView.barMode(job);

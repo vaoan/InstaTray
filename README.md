@@ -216,9 +216,10 @@ botones (el azul es el principal):
 | Lista sin archivo de video | *Abrir página* · *Reintentar* · 🗑 | ✓ Listo |
 | Fallida o cancelada | *Abrir página* · *Reintentar* · 🗑 | ✕ motivo del fallo |
 
-Todas las filas llenan las mismas tres columnas (azul, normal e ícono), así que los botones forman una cuadrícula
-pareja; en la que está bajando, la barra de progreso ocupa el lugar del botón azul. La última columna es solo un
-ícono (al pasar el mouse dice qué hace): ✕ saca de la cola, 🗑 saca de la lista.
+Todas las filas llenan las mismas tres columnas (ícono, azul y normal), así que los botones forman una cuadrícula
+pareja que termina justo en el borde de la ventana, igual que *Descargar* y *Ajustes* arriba; la que está bajando no
+tiene botón azul. La primera columna es solo un ícono (al pasar el mouse dice qué hace): ✕ saca de la cola, 🗑 saca
+de la lista.
 
 - **Doble clic** o **Enter** = botón azul. **⌫** quita de la lista las seleccionadas (nunca la que está bajando).
   **Clic derecho**: las mismas acciones, *Copiar enlace* (no dispara otra descarga) y *Detalles*.

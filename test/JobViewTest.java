@@ -104,8 +104,8 @@ public class JobViewTest {
         for (int w : new int[]{600, 900}) {
             Rectangle[] b = JobView.buttonBounds(w, 52);
             T.check("buttonBoundsAligned " + w, b.length == 3 && b[0].width == b[1].width && b[0].width == 150
-                    && b[2].x + b[2].width == w - 14 && b[0].y == b[1].y && b[1].y == b[2].y
-                    && b[0].x + b[0].width + 6 == b[1].x && b[1].x + b[1].width + 6 == b[2].x
+                    && b[1].x + b[1].width == w - 14 && b[0].y == b[1].y && b[1].y == b[2].y
+                    && b[2].x + b[2].width + 6 == b[0].x && b[0].x + b[0].width + 6 == b[1].x
                     && b[0].height == 24 && b[0].y == (52 - 24) / 2, java.util.Arrays.toString(b));
         }
         // barMode: downloading always shows a bar; unknown percent sweeps instead of filling
