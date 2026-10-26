@@ -637,7 +637,7 @@ public final class InstaTray implements WindowHost {
     /**
      * Loopback-only control channel. An empty line (a second launch) shows the window; the other
      * commands exist so the queue can be exercised from a terminal: queue, tooltip, get TEXT, pause, resume,
-     * top KEY, cancel KEY, remove KEY.
+     * top KEY, cancel KEY, remove KEY, menu.
      */
     private String control(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
@@ -652,6 +652,11 @@ public final class InstaTray implements WindowHost {
             }
             case "tooltip" -> { return lastTooltip; }
             case "get" -> { return handleText(arg, true) ? "ok" : "no supported link"; } // like the window field
+            case "menu" -> { // opens the menu-bar menu as a click would (to capture the highlight)
+                NativeBar b = bar;
+                if (b == null) return "no native bar";
+                b.open();
+            }
             case "pause" -> setPaused(true);
             case "resume" -> setPaused(false);
             case "top" -> { if (job != null) move(job, Integer.MIN_VALUE); else return "no such job"; }

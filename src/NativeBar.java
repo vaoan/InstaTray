@@ -70,6 +70,11 @@ final class NativeBar {
         send("icon\t" + Base64.getEncoder().encodeToString(png.toByteArray()) + "\n");
     }
 
+    /** Opens the menu as a click would (control channel "menu", for tests). */
+    void open() {
+        send("open\n");
+    }
+
     void setTooltip(String text) {
         send("tip\t" + clean(text) + "\n");
     }
