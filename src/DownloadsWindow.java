@@ -137,15 +137,19 @@ final class DownloadsWindow {
     private JComponent top() {
         JPanel top = panel(new BorderLayout());
 
-        GlassPanel toolbar = new GlassPanel(GlassPanel.Kind.TOOLBAR, new BorderLayout(8, 0));
-        toolbar.setBorder(new EmptyBorder(12, 14, 11, 14));
+        // the two buttons sit exactly over the rows' blue and plain columns (JobView.buttonBounds)
+        GlassPanel toolbar = new GlassPanel(GlassPanel.Kind.TOOLBAR, new BorderLayout(12, 0));
+        toolbar.setBorder(new EmptyBorder(12, 14, 11, JobView.RIGHT_INSET + JobView.TRASH_W + JobView.GAP));
         field.setFont(BASE);
         field.addActionListener(e -> submit());
         toolbar.add(field, BorderLayout.CENTER);
-        JPanel buttons = panel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        JPanel buttons = panel(new GridLayout(1, 2, JobView.GAP, 0));
         buttons.setOpaque(false);
-        buttons.add(new PillButton("Descargar", null, true, this::submit));
-        buttons.add(new PillButton("Ajustes", Glyph.GEAR, false, openSettings));
+        for (PillButton pb : new PillButton[]{new PillButton("Descargar", null, true, this::submit),
+                new PillButton("Ajustes", Glyph.GEAR, false, openSettings)}) {
+            pb.setPreferredSize(new Dimension(JobView.BUTTON_W, 28));
+            buttons.add(pb);
+        }
         toolbar.add(buttons, BorderLayout.EAST);
         top.add(toolbar, BorderLayout.NORTH);
 
@@ -368,16 +372,16 @@ final class DownloadsWindow {
             }
             case OPEN_PAGE -> host.openUrl(j.page.isEmpty() ? j.link.url() : j.page);
             case RETRY -> host.retry(j);
+            case DELETE -> host.remove(j);
         }
         reload();
     }
 
     private void showMenu(Job j, MouseEvent e) {
         JPopupMenu menu = new JPopupMenu();
-        for (JobView.Action a : new JobView.Action[]{JobView.primary(j), JobView.secondary(j)}) {
+        for (JobView.Action a : new JobView.Action[]{JobView.primary(j), JobView.secondary(j), JobView.dismiss(j)}) {
             if (a != null) menu.add(item(a.label, () -> run(a, j)));
         }
-        if (JobView.deletable(j)) menu.add(item("Borrar de la lista", () -> host.remove(j)));
         menu.addSeparator();
         menu.add(item("Copiar enlace", () -> host.copyToClipboardSilently(j.link.url())));
         menu.add(item("Detalles", () -> {
@@ -553,6 +557,8 @@ final class DownloadsWindow {
                 r.hoverRow = row;
                 r.hoverButton = button;
                 rows.list.setCursor(button >= 0 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+                // the last column is icon-only: its tooltip names the action
+                rows.list.setToolTipText(button == 2 ? JobView.dismiss(rows.model.get(row)).label : null);
                 rows.list.repaint();
             }
         }
@@ -579,9 +585,8 @@ final class DownloadsWindow {
             int[] hit = hit(e);
             if (hit == null || hit[1] < 0 || !SwingUtilities.isLeftMouseButton(e)) return;
             Job j = rows.model.get(hit[0]);
-            JobView.Action a = hit[1] == 0 ? JobView.primary(j) : hit[1] == 1 ? JobView.secondary(j) : null;
+            JobView.Action a = hit[1] == 0 ? JobView.primary(j) : hit[1] == 1 ? JobView.secondary(j) : JobView.dismiss(j);
             if (a != null) run(a, j);
-            else if (hit[1] == 2) host.remove(j);
         }
 
         @Override
@@ -612,7 +617,7 @@ final class DownloadsWindow {
             Point p = new Point(e.getX() - cell.x, e.getY() - cell.y);
             if (JobView.primary(j) != null && b[0].contains(p)) return new int[]{row, 0};
             if (JobView.secondary(j) != null && b[1].contains(p)) return new int[]{row, 1};
-            if (JobView.deletable(j) && b[2].contains(p)) return new int[]{row, 2};
+            if (b[2].contains(p)) return new int[]{row, 2};
             return new int[]{row, -1};
         }
     }
@@ -651,7 +656,9 @@ final class DownloadsWindow {
             g.drawImage(orb(job.link.site()), 14, (h - 28) / 2, 28, 28, null);
 
             Rectangle[] b = JobView.buttonBounds(w, h);
-            int textX = 14 + 28 + 12, textW = b[0].x - 12 - textX;
+            int textX = 14 + 28 + 12;
+            // no blue button (downloading): text and progress bar take its column too
+            int textW = (JobView.primary(job) == null ? b[1].x : b[0].x) - 12 - textX;
             g.setFont(BOLD);
             g.setColor(p.text());
             JobView.Bar barMode = JobView.barMode(job);
@@ -676,15 +683,13 @@ final class DownloadsWindow {
             JobView.Action a1 = JobView.primary(job), a2 = JobView.secondary(job);
             if (a1 != null) paintButton(g, b[0], a1.label, Glyph.of(a1), true, hoverRow == index && hoverButton == 0, p);
             if (a2 != null) paintButton(g, b[1], a2.label, Glyph.of(a2), false, hoverRow == index && hoverButton == 1, p);
-            if (JobView.deletable(job)) {
-                boolean hover = hoverRow == index && hoverButton == 2;
-                if (hover) {
-                    g.setColor(p.button());
-                    g.fill(new RoundRectangle2D.Double(b[2].x, b[2].y, b[2].width, b[2].height, b[2].height, b[2].height));
-                }
-                Glyph.TRASH.paint(g, b[2].x + (b[2].width - 12) / 2.0, b[2].y + (b[2].height - 12) / 2.0,
-                        hover ? p.bad() : p.secondary());
+            boolean hover = hoverRow == index && hoverButton == 2;
+            if (hover) {
+                g.setColor(p.button());
+                g.fill(new RoundRectangle2D.Double(b[2].x, b[2].y, b[2].width, b[2].height, b[2].height, b[2].height));
             }
+            Glyph.of(JobView.dismiss(job)).paint(g, b[2].x + (b[2].width - 12) / 2.0, b[2].y + (b[2].height - 12) / 2.0,
+                    hover ? p.bad() : p.secondary());
             g.dispose();
         }
 
@@ -739,6 +744,7 @@ final class DownloadsWindow {
                 case REVEAL -> MAGNIFIER;
                 case OPEN_PAGE -> GLOBE;
                 case RETRY -> RETRY;
+                case DELETE -> TRASH;
             };
         }
 
@@ -856,6 +862,7 @@ final class DownloadsWindow {
 
         @Override
         public Dimension getPreferredSize() {
+            if (isPreferredSizeSet()) return super.getPreferredSize(); // fixed to a row column's width
             FontMetrics fm = getFontMetrics(primary ? SMALL.deriveFont(Font.BOLD) : SMALL);
             return new Dimension(fm.stringWidth(label) + 28 + (glyph == null ? 0 : 18), 28);
         }

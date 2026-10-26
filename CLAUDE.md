@@ -105,6 +105,9 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   10s/30s/1m/5m growing linearly). Permanent failures (live, no video, login/cookies, no yt-dlp) are not retried.
 - The window opens only on explicit request: tray menu, or a second launch of the app.
 - One window only (user chose it): rows with text+icon buttons of equal width in a fixed column, filter chips,
+  every row fills the same grid (user asked for it to "feel complete"): blue `primary` (the downloading row lends
+  it to its progress bar), plain `secondary`, icon-only `dismiss` (✕ cancel/remove, 🗑 delete; tooltip names it);
+  the toolbar's Descargar/Ajustes sit exactly over the blue/plain columns. Also:
   "borrar todas" as discreet footer text that depends on the filter (a red standalone button was rejected).
   "Borrar"/"Quitar" never delete files. Follows system light/dark mode.
 - Tray tooltip: live "Site · title — 45% · 2.1 MB/s · quedan 0:12 · +N en cola" (`tooltip()`, throttled

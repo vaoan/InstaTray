@@ -172,16 +172,21 @@ botones (el azul es el principal):
 
 | Estado | Botones | Línea gris |
 |---|---|---|
-| Descargando | *Cancelar* | sitio · 45 % · velocidad · quedan 0:12 |
-| En cola | *Poner primero* · *Quitar* | sitio · en cola (2.º), o «reintento en 20 s» |
-| Lista | *Ver* · *Mostrar en Finder* | ✓ Listo · hace 5 min · 12.0 MB |
+| Descargando | *Abrir página* · ✕ (cancelar) | sitio · 45 % · velocidad · quedan 0:12 |
+| En cola | *Poner primero* · *Abrir página* · ✕ (quitar) | sitio · en cola (2.º), o «reintento en 20 s» |
+| Lista | *Ver* · *Mostrar en Finder* · 🗑 | ✓ Listo · hace 5 min · 12.0 MB |
+| Lista sin archivo de video | *Abrir página* · *Reintentar* · 🗑 | ✓ Listo |
 | Fallida o cancelada | *Abrir página* · *Reintentar* · 🗑 | ✕ motivo del fallo |
+
+Todas las filas llenan las mismas tres columnas (azul, normal e ícono), así que los botones forman una cuadrícula
+pareja; en la que está bajando, la barra de progreso ocupa el lugar del botón azul. La última columna es solo un
+ícono (al pasar el mouse dice qué hace): ✕ saca de la cola, 🗑 saca de la lista.
 
 - **Doble clic** o **Enter** = botón azul. **⌫** quita de la lista las seleccionadas (nunca la que está bajando).
   **Clic derecho**: las mismas acciones, *Copiar enlace* (no dispara otra descarga) y *Detalles*.
 - *Ver* abre el video; si lo moviste o borraste, lo avisa y abre la carpeta. *Abrir página* abre el enlace, o la
   página de origen si el video salió de un HTML copiado.
-- *Cancelar* una descarga en curso borra sus archivos a medio bajar (`.part`). *Quitar* saca de la cola una que
+- ✕ (*Cancelar*) en una descarga en curso borra sus archivos a medio bajar (`.part`). ✕ (*Quitar*) saca de la cola una que
   espera, sin dejarla en Fallidas.
 - **Borrar o quitar solo saca filas de la lista: nunca borra videos.** La 🗑 de una fila no pregunta.
 

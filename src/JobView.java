@@ -26,7 +26,7 @@ final class JobView {
 
     enum Action {
         CANCEL("Cancelar"), TOP("Poner primero"), REMOVE("Quitar"), PLAY("Ver"), REVEAL("Mostrar en Finder"),
-        OPEN_PAGE("Abrir página"), RETRY("Reintentar");
+        OPEN_PAGE("Abrir página"), RETRY("Reintentar"), DELETE("Borrar de la lista");
 
         final String label;
 
@@ -61,18 +61,22 @@ final class JobView {
         };
     }
 
+    /** The plain button; every row has one, so the columns read as a complete grid. */
     static Action secondary(Job j) {
         return switch (j.status) {
-            case DOWNLOADING -> Action.CANCEL;
-            case QUEUED -> Action.REMOVE;
-            case DONE -> j.files.isEmpty() ? null : Action.REVEAL;
+            case DOWNLOADING, QUEUED -> Action.OPEN_PAGE;
+            case DONE -> j.files.isEmpty() ? Action.RETRY : Action.REVEAL;
             case FAILED, CANCELLED -> Action.RETRY;
         };
     }
 
-    /** Rows with the trash slot filled. */
-    static boolean deletable(Job j) {
-        return j.status == Job.Status.FAILED || j.status == Job.Status.CANCELLED;
+    /** The icon-only last column, on every row: ✕ takes a job out of the queue, 🗑 takes a finished one off the list. */
+    static Action dismiss(Job j) {
+        return switch (j.status) {
+            case DOWNLOADING -> Action.CANCEL;
+            case QUEUED -> Action.REMOVE;
+            case DONE, FAILED, CANCELLED -> Action.DELETE;
+        };
     }
 
     /** Rows the Delete key may take out of the list: everything but the download in progress. */

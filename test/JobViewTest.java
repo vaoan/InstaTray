@@ -24,16 +24,21 @@ public class JobViewTest {
         // actionsPerStatus
         Job done = job(Job.Status.DONE);
         done.files = List.of("/v/a.mp4");
-        T.eq("actions downloading", "null/CANCEL", acts(job(Job.Status.DOWNLOADING)));
-        T.eq("actions queued", "TOP/REMOVE", acts(job(Job.Status.QUEUED)));
-        T.eq("actions done", "PLAY/REVEAL", acts(done));
-        T.eq("actions failed", "OPEN_PAGE/RETRY", acts(job(Job.Status.FAILED)));
-        T.eq("actions cancelled", "OPEN_PAGE/RETRY", acts(job(Job.Status.CANCELLED)));
-        T.eq("doneWithoutFilesOffersPage", "OPEN_PAGE/null", acts(job(Job.Status.DONE)));
+        T.eq("actions downloading", "null/OPEN_PAGE/CANCEL", acts(job(Job.Status.DOWNLOADING)));
+        T.eq("actions queued", "TOP/OPEN_PAGE/REMOVE", acts(job(Job.Status.QUEUED)));
+        T.eq("actions done", "PLAY/REVEAL/DELETE", acts(done));
+        T.eq("actions failed", "OPEN_PAGE/RETRY/DELETE", acts(job(Job.Status.FAILED)));
+        T.eq("actions cancelled", "OPEN_PAGE/RETRY/DELETE", acts(job(Job.Status.CANCELLED)));
+        T.eq("doneWithoutFilesOffersPage", "OPEN_PAGE/RETRY/DELETE", acts(job(Job.Status.DONE)));
+        // every row fills the plain and the icon column (only the downloading row lends the blue one to its bar)
+        for (Job.Status st : Job.Status.values()) {
+            Job j = job(st);
+            T.check("gridComplete " + st, JobView.secondary(j) != null && JobView.dismiss(j) != null
+                    && (JobView.primary(j) != null) == (st != Job.Status.DOWNLOADING), acts(j));
+        }
 
         Job dl = job(Job.Status.DOWNLOADING);
-        T.check("downloadingIsNotDeletable", !JobView.deletable(dl) && !JobView.removableByKey(dl), "");
-        T.check("failedIsDeletable", JobView.deletable(job(Job.Status.FAILED)) && !JobView.deletable(done), "");
+        T.check("downloadingIsNotRemovableByKey", !JobView.removableByKey(dl), "");
         T.check("removableByKey", JobView.removableByKey(done) && JobView.removableByKey(job(Job.Status.QUEUED)), "");
 
         // titles and subtitles
@@ -116,6 +121,6 @@ public class JobViewTest {
     }
 
     static String acts(Job j) {
-        return JobView.primary(j) + "/" + JobView.secondary(j);
+        return JobView.primary(j) + "/" + JobView.secondary(j) + "/" + JobView.dismiss(j);
     }
 }
