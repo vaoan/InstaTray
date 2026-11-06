@@ -1,6 +1,6 @@
 // InstaTrayBar: the menu-bar item, drawn natively so it is as narrow as Apple's own (Java's TrayIcon adds a fixed
 // 12pt margin on each side). The Java app starts it and drives it through stdin, one tab-separated command per line:
-//   icon <base64 png>     44×44 px, shown at 22×22 pt (2x)
+//   icon <base64 png> [template]   44×44 px, shown at 22×22 pt (2x); template = macOS tints it to suit the bar
 //   tip <text>            tooltip
 //   menu <n>              followed by n lines, each "item <tag> <enabled 0|1> <checked -1|0|1> <label>" or "sep"
 //   open                  opens the menu as a click would, or closes it if it is open (for tests)
@@ -30,6 +30,7 @@ final class Bar: NSObject, NSMenuDelegate {
         case "icon":
             guard parts.count > 1, let data = Data(base64Encoded: parts[1]), let image = NSImage(data: data) else { return }
             image.size = NSSize(width: Bar.size, height: Bar.size)
+            image.isTemplate = parts.count > 2 && parts[2] == "template"
             item.button?.image = image
         case "open": // as if clicked, or closes it if open (lets tests capture the highlight and the open menu)
             if isOpen { menu.cancelTracking() } else { item.button?.performClick(nil) }

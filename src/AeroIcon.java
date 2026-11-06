@@ -193,6 +193,20 @@ public final class AeroIcon {
 
     /** White download arrow dropping into a tray line, with a soft glassy shadow. */
     private static void drawArrow(Graphics2D g, float x, float y, float d, boolean small) {
+        Area glyph = arrowGlyph(x, y, d, small);
+
+        Graphics2D gg = (Graphics2D) g.create();
+        gg.translate(0, d * 0.025f);
+        gg.setColor(new Color(0, 20, 60, 110));
+        gg.fill(glyph);
+        gg.dispose();
+
+        g.setPaint(new GradientPaint(0, y + d * 0.22f, new Color(255, 255, 255, 255),
+                0, y + d * 0.85f, new Color(215, 240, 255, 255)));
+        g.fill(glyph);
+    }
+
+    private static Area arrowGlyph(float x, float y, float d, boolean small) {
         float cx = x + d / 2;
         float shaft = d * 0.13f;
         float headW = d * 0.42f;
@@ -210,16 +224,21 @@ public final class AeroIcon {
 
         Area glyph = new Area(arrow);
         glyph.add(new Area(tray));
+        return glyph;
+    }
 
-        Graphics2D gg = (Graphics2D) g.create();
-        gg.translate(0, d * 0.025f);
-        gg.setColor(new Color(0, 20, 60, 110));
-        gg.fill(glyph);
-        gg.dispose();
-
-        g.setPaint(new GradientPaint(0, y + d * 0.22f, new Color(255, 255, 255, 255),
-                0, y + d * 0.85f, new Color(215, 240, 255, 255)));
-        g.fill(glyph);
+    /** The idle menu-bar icon: only the arrow, flat white on nothing, for macOS to tint as a template image. */
+    static BufferedImage renderTrayArrow(int size) {
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        float d = size * 1.15f; // the glyph spans 0.22–0.85 of d: about 16 of the 22pt, like other menu-bar glyphs
+        float top = (size - d * 0.63f) / 2 - d * 0.22f;
+        g.setColor(Color.WHITE);
+        g.fill(arrowGlyph((size - d) / 2, top, d, true));
+        g.dispose();
+        return img;
     }
 
     /**

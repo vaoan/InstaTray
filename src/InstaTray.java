@@ -610,7 +610,7 @@ public final class InstaTray implements WindowHost {
         }
         bar = nb;
         log("Menu-bar item: native helper");
-        nb.setIcon(AeroIcon.render(AeroIcon.TRAY_PX));
+        nb.setIcon(AeroIcon.renderTrayArrow(AeroIcon.TRAY_PX), true);
         nb.setTooltip("InstaTray");
         nb.syncMenu();
         // the AWT menu stays the model; labels and check marks change in many places, so mirror it on a timer
@@ -951,7 +951,10 @@ public final class InstaTray implements WindowHost {
         String key = palette + ":" + badge + ":" + step;
         NativeBar b = bar;
         float level = step < 0 ? -1f : step / 100f;
-        BufferedImage img = iconCache.computeIfAbsent(key, k -> AeroIcon.render(AeroIcon.TRAY_PX, palette, badge, level));
+        // only the native item can be tinted to suit the bar; a fixed white arrow would vanish on a light one
+        boolean template = b != null && palette == AeroIcon.Palette.IDLE;
+        BufferedImage img = iconCache.computeIfAbsent(template ? "ARROW" : key,
+                k -> template ? AeroIcon.renderTrayArrow(AeroIcon.TRAY_PX) : AeroIcon.render(AeroIcon.TRAY_PX, palette, badge, level));
         if (!key.equals(lastIconKey)) log("Tray icon -> " + key);
         lastIconKey = key;
         String tip = tooltip(pending);
@@ -959,7 +962,7 @@ public final class InstaTray implements WindowHost {
         lastTooltipAt = System.currentTimeMillis();
         EventQueue.invokeLater(() -> {
             if (b != null) {
-                b.setIcon(img);
+                b.setIcon(img, template);
             } else {
                 trayIcon.setImage(img);
             }

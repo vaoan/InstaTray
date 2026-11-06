@@ -10,7 +10,7 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 ## Uso
 
 1. Doble clic en **`~/Documents/InstaTray.app`** (acceso directo a `GitHub/InstaTray/InstaTray.app`).
-   Solo aparece la esfera en la barra de menú, **sin ventana**.
+   Solo aparece la flecha en la barra de menú, **sin ventana**.
 2. Copia el enlace de un video y se descarga solo. El ícono muestra el progreso.
 3. Los videos quedan en **`Documentos/Videos`**, o en la carpeta que elijas.
 
@@ -53,7 +53,7 @@ comandos y los scripts tienen pruebas automáticas, pero si algo falla, mira `%A
 
 ## Ícono
 
-Todos los íconos son baldosas de vidrio estilo **Liquid Glass** (macOS 26): esquinas continuas, luz suave y un
+Sin descargas, en la barra de menús se ve solo una **flecha de descarga**, como en las demás apps: macOS la pinta blanca sobre una barra oscura y negra sobre una clara. Los demás íconos son baldosas de vidrio estilo **Liquid Glass** (macOS 26): esquinas continuas, luz suave y un
 borde brillante, dibujadas por código en
 `src/AeroIcon.java`, sin imágenes externas. Vista previa de los estados: `icon-states.png`.
 
@@ -63,7 +63,8 @@ que macOS deja entre íconos = 38 pt). Si el ayudante falta o se cierra, vuelve 
 
 | Estado | Ícono |
 |---|---|
-| Sin descargas | **Aqua** con flecha de descarga blanca. Es el ícono del proyecto, y también el de la `.app` y las ventanas |
+| Sin descargas (barra de menús) | Solo la flecha de descarga, sin baldosa. Si falta el ayudante nativo, y en Windows, se ve la baldosa aqua: ahí el sistema no puede adaptar el color |
+| Proyecto, `.app` y ventanas | **Aqua** con flecha de descarga blanca |
 | Bajando de Instagram | **Multicolor**: amarillo-naranja abajo, morado-azul arriba |
 | Bajando de YouTube | **Roja** pareja, de un solo tono, para no confundirla con Instagram |
 | Bajando de X | **Grafito** |

@@ -58,7 +58,8 @@ final class NativeBar {
         return alive;
     }
 
-    void setIcon(BufferedImage image) {
+    /** template: only its shape counts, macOS paints it to suit the menu bar (white on dark, black on light). */
+    void setIcon(BufferedImage image, boolean template) {
         if (image == lastIcon) return; // images are cached, so the same object means the same picture
         lastIcon = image;
         ByteArrayOutputStream png = new ByteArrayOutputStream();
@@ -67,7 +68,11 @@ final class NativeBar {
         } catch (IOException e) {
             return;
         }
-        send("icon\t" + Base64.getEncoder().encodeToString(png.toByteArray()) + "\n");
+        send(iconCommand(png.toByteArray(), template));
+    }
+
+    static String iconCommand(byte[] png, boolean template) {
+        return "icon\t" + Base64.getEncoder().encodeToString(png) + (template ? "\ttemplate" : "") + "\n";
     }
 
     /** Opens the menu as a click would, or closes it if open (control channel "menu", for tests). */

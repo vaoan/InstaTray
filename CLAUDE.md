@@ -144,7 +144,8 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 - Tray badge: **1 pending → download percent with a small superscript "%"** (badge text "45%"; `drawBadge` keeps the
   digits full size); **≥2 pending → pending count, no "%"** (`9+` cap). The "%" is what tells the two apart. The fill level always shows the
   current download's progress (washed-out tile filling with saturated color bottom→top, meniscus line).
-- Every icon variant is a Liquid Glass squircle tile (superellipse, top-left light, rim one even white all around — user asked). Idle = aqua tile +
+- Idle in the menu bar = only the download arrow (`renderTrayArrow`, user asked: "como el standard"), sent as a template image so macOS tints it; no native helper (AWT, Windows) → the aqua tile, since a fixed white arrow vanishes on a light bar.
+- Every other icon variant is a Liquid Glass squircle tile (superellipse, top-left light, rim one even white all around — user asked). Idle = aqua tile +
   white download arrow (also the .app
   icon). Busy = active site's palette. Instagram (multicolor, yellow-orange bottom → violet-blue top) and YouTube
   (flat single-tone red) must stay clearly distinct at 22pt. Site colors only, never logos.
