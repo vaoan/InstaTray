@@ -382,6 +382,7 @@ public final class InstaTray implements WindowHost {
     private volatile boolean paused = false;
     /** True while Homebrew installs/upgrades tools: the queue waits so yt-dlp is never replaced mid-download. */
     private volatile boolean toolsBusy = false;
+    private volatile JobView.Notice notice;
     private static final long UPGRADE_EVERY_MS = 7L * 24 * 3600 * 1000;
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "clipboard");
@@ -504,8 +505,11 @@ public final class InstaTray implements WindowHost {
         downloader.start();
         resumeInterruptedJobs();
 
-        // Ignore whatever is already in the clipboard at startup
+        // Ignore whatever is already in the clipboard at startup, but the window offers it
         lastClip = readClipboard();
+        List<Link> copiedBefore = findLinks(lastClip).stream()
+                .filter(l -> !done.contains(l.key()) && !queued.contains(l.key())).toList();
+        if (!copiedBefore.isEmpty()) notice = new JobView.Notice(JobView.Notice.Kind.COPIED_BEFORE, copiedBefore);
         poller.execute(() -> setStatus(Lang.key("Vigilando portapapeles")));
         poller.scheduleWithFixedDelay(this::pollClipboard, 1, 1, TimeUnit.SECONDS);
         log("InstaTray started. Output: " + videosDir + (subfolders ? "/<Site>" : ""));
@@ -684,6 +688,8 @@ public final class InstaTray implements WindowHost {
                 return sb.toString();
             }
             case "tooltip" -> { return lastTooltip; }
+            case "notice" -> { JobView.Notice n = notice; return n == null ? "none" : n.kind() + " | " + n.text() + " | " + n.action(); }
+            case "accept" -> acceptNotice();
             case "get" -> { return handleText(arg, true) ? "ok" : "no supported link"; } // like the window field
             case "menu" -> { // opens the menu-bar menu as a click would, or closes it (to capture the highlight)
                 NativeBar b = bar;
@@ -968,7 +974,8 @@ public final class InstaTray implements WindowHost {
         }
         Job j = current;
         if (j == null || j.isFinished()) {
-            return pending == 0 ? Lang.t("InstaTray — sin descargas") : Lang.f("InstaTray — %d en cola", pending);
+            if (pending == 0) return Lang.t("InstaTray — sin descargas");
+            return toolsBusy ? Lang.f("InstaTray — %d en cola, actualizando herramientas", pending) : Lang.f("InstaTray — %d en cola", pending);
         }
         StringBuilder sb = new StringBuilder(j.link.label());
         if (!j.title.isBlank()) sb.append(" · ").append(shorten(j.title, 50));
@@ -1114,22 +1121,58 @@ public final class InstaTray implements WindowHost {
         PageVideos pv = html.isEmpty() ? null : pageVideos(html);
         List<Link> fromPage = pv == null ? List.of() : pageLinks(pv, force);
         links.addAll(fromPage);
+        List<Link> ignored = new ArrayList<>();
         for (Link link : links) {
             found = true;
             String key = link.key();
             if (queued.contains(key)) continue;
             if (done.contains(key) && !force) {
                 setStatus(Lang.key("Ya descargado: %s %s"), link.label(), shortKey(key));
+                ignored.add(link);
                 continue;
             }
-            Job job = new Job(link, System.currentTimeMillis());
-            if (pv != null && pv.page() != null && fromPage.contains(link)) job.page = pv.page(); // for "Abrir página"
-            synchronized (jobs) {
-                jobs.add(0, job);
-            }
-            enqueue(job);
+            queueLink(link, pv != null && fromPage.contains(link) ? pv.page() : null);
         }
+        if (found) notice = ignored.isEmpty() ? null : new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.copyOf(ignored));
         return found;
+    }
+
+    /** page: the pasted page the link came from, for "Abrir página"; may be null. */
+    private void queueLink(Link link, String page) {
+        Job job = new Job(link, System.currentTimeMillis());
+        if (page != null) job.page = page;
+        synchronized (jobs) {
+            JobView.dropFinished(jobs, link.key());
+            jobs.add(0, job);
+        }
+        enqueue(job);
+    }
+
+    @Override
+    public boolean toolsBusy() {
+        return toolsBusy;
+    }
+
+    @Override
+    public JobView.Notice notice() {
+        return notice;
+    }
+
+    @Override
+    public void acceptNotice() {
+        JobView.Notice n = notice;
+        notice = null;
+        if (n == null) return;
+        poller.execute(() -> {
+            for (Link link : n.links()) {
+                if (!queued.contains(link.key())) queueLink(link, null);
+            }
+        });
+    }
+
+    @Override
+    public void dismissNotice() {
+        notice = null;
     }
 
     /**
@@ -1837,7 +1880,7 @@ public final class InstaTray implements WindowHost {
         }
     }
 
-    private static String shortKey(String key) {
+    static String shortKey(String key) {
         if (key.startsWith("ytdl:") || key.startsWith("embed:")) return key.split(":", 3)[2];
         if (key.startsWith("gdl:")) { // last path segment of the post URL
             return key.split(":", 3)[2].replaceFirst("[?#].*$", "").replaceFirst("/+$", "").replaceFirst("^.*/", "");
@@ -2027,7 +2070,8 @@ public final class InstaTray implements WindowHost {
                 job.files = List.copyOf(files);
                 job.bytes = fileSize(files.get(0));
                 job.percent = 100;
-                job.message = files.size() > 1 ? Lang.f("%d videos en %s", files.size(), displayPath(outDir))
+                job.message = job.destinations.isEmpty() ? JobView.ALREADY_THERE // nothing was written: they were there
+                        : files.size() > 1 ? Lang.f("%d videos en %s", files.size(), displayPath(outDir))
                         : Lang.f("Guardado en %s", displayPath(outDir) + "/" + Paths.get(files.get(0)).getFileName());
                 job.status = Job.Status.DONE;
                 setStatus(Lang.key("Listo: %s"), name); // success is silent: only failures notify
@@ -2480,10 +2524,7 @@ public final class InstaTray implements WindowHost {
                         cmd.addAll(missing);
                         ok = runInstall(cmd, "install " + missing);
                     }
-                    say.accept(Lang.f("Actualizando %s… (la cola espera)", String.join(", ", TOOLS)));
-                    List<String> up = new ArrayList<>(brewCommand(brew, "upgrade"));
-                    up.addAll(List.of(TOOLS));
-                    ok &= runInstall(up, "upgrade " + String.join(" ", TOOLS));
+                    ok &= upgradeTools(brew, List.of(TOOLS), say);
                     if (ok) saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
                     say.accept(ok && missingTools().isEmpty() ? Lang.t("Listo: todo instalado y al día ✓")
                             : Lang.t("No se pudo completar. Mira el registro (menú del ícono → Ver registro)."));
@@ -2576,26 +2617,93 @@ public final class InstaTray implements WindowHost {
         if (brew == null || findBin("yt-dlp") == null) return;
         if (findBin("gallery-dl") == null) ensureTools();
         // both track sites that change often
-        if (runInstall(brewCommand(brew, "upgrade", "yt-dlp", "gallery-dl"), "upgrade yt-dlp gallery-dl")) {
+        if (upgradeTools(brew, List.of("yt-dlp", "gallery-dl"), text -> {})) {
             saveSetting("ytdlpUpgradedAt", String.valueOf(System.currentTimeMillis()));
         }
+    }
+
+    /** How upgradeSteps runs each brew command; out receives its output lines. */
+    interface BrewRunner {
+        boolean run(List<String> cmd, boolean holdQueue, Consumer<String> out);
+    }
+
+    /**
+     * Upgrades without stopping the queue for the slow part (a bottle can take many minutes): the index refresh and the
+     * downloads run with the queue going, and it only waits for "brew upgrade", which then just swaps the files.
+     * Nothing outdated: it never waits. Failing to download leaves the tools as they are.
+     */
+    static boolean upgradeSteps(List<String> brew, List<String> tools, BrewRunner run) {
+        run.run(with(brew, "update"), false, line -> {}); // a failed refresh can still work from the last index
+        List<String> outdated = new ArrayList<>();
+        if (!run.run(with(brew, "outdated", "--quiet", "--formula"), false, line -> outdated.add(line.strip()))) return false;
+        List<String> stale = tools.stream().filter(outdated::contains).toList();
+        if (stale.isEmpty()) return true;
+        // not "fetch --deps": it also brings build dependencies (llvm, rust… hundreds of MB that upgrade never uses)
+        List<String> fetch = new ArrayList<>(stale);
+        run.run(with(brew, "deps", stale), false, line -> {
+            if (outdated.contains(line.strip())) fetch.add(line.strip()); // upgrade replaces these too
+        });
+        return run.run(with(brew, "fetch", fetch), false, line -> {})
+                && run.run(with(brew, "upgrade", stale), true, line -> {});
+    }
+
+    private static List<String> with(List<String> brew, Object... args) {
+        List<String> cmd = new ArrayList<>(brew);
+        for (Object a : args) {
+            if (a instanceof List<?> l) l.forEach(x -> cmd.add(x.toString()));
+            else cmd.add(a.toString());
+        }
+        return cmd;
+    }
+
+    private boolean upgradeTools(String brew, List<String> tools, Consumer<String> say) {
+        String names = String.join(", ", tools);
+        say.accept(Lang.t("Buscando actualizaciones… (la cola sigue)"));
+        return upgradeSteps(brewCommand(brew), tools, (cmd, hold, out) -> {
+            String what = String.join(" ", cmd.subList(cmd.indexOf(brew) + 1, cmd.size()));
+            if (cmd.contains("fetch")) say.accept(Lang.f("Bajando actualizaciones de %s… (la cola sigue)", names));
+            if (hold) {
+                say.accept(Lang.f("Actualizando %s… (la cola espera)", names));
+                return runInstall(cmd, what);
+            }
+            return runLogged(cmd, what, out);
+        });
     }
 
     /** Runs an install command (Homebrew, or winget/pip on Windows) with the queue on hold; output goes to the log. */
     private boolean runInstall(List<String> cmd, String what) {
         toolsBusy = true;
+        updateTrayIcon();
         try {
             // let a download that is already running finish first
             while (current != null) Thread.sleep(1000);
+            return runLogged(cmd, what, line -> {});
+        } catch (InterruptedException e) {
+            log("ERROR " + (Platform.WINDOWS ? "install " : "Homebrew ") + what + ": " + e);
+            return false;
+        } finally {
+            toolsBusy = false;
+            updateTrayIcon();
+            synchronized (pending) {
+                pending.notifyAll();
+            }
+        }
+    }
+
+    private boolean runLogged(List<String> cmd, String what, Consumer<String> out) {
+        try {
             log((Platform.WINDOWS ? "Install: " : "Homebrew: ") + what);
             ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
             toolEnvironment(pb);
-            // installs skip the slow index refresh; upgrades need it, or brew never sees a newer yt-dlp
-            if (!Platform.WINDOWS && cmd.contains("install")) pb.environment().put("HOMEBREW_NO_AUTO_UPDATE", "1");
+            // brew's implicit refresh would be slow on top of the explicit "brew update" of upgradeSteps
+            if (!Platform.WINDOWS) pb.environment().put("HOMEBREW_NO_AUTO_UPDATE", "1");
             Process p = pb.start();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
-                while ((line = r.readLine()) != null) log((Platform.WINDOWS ? "  > " : "  brew: ") + line);
+                while ((line = r.readLine()) != null) {
+                    log((Platform.WINDOWS ? "  > " : "  brew: ") + line);
+                    out.accept(line);
+                }
             }
             boolean finished = p.waitFor(20, TimeUnit.MINUTES);
             int exit = finished ? p.exitValue() : -1;
@@ -2604,11 +2712,6 @@ public final class InstaTray implements WindowHost {
         } catch (Exception e) {
             log("ERROR " + (Platform.WINDOWS ? "install " : "Homebrew ") + what + ": " + e);
             return false;
-        } finally {
-            toolsBusy = false;
-            synchronized (pending) {
-                pending.notifyAll();
-            }
         }
     }
 

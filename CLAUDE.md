@@ -130,6 +130,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   (toggle "Avisar si una descarga falla"); transient failures are retried silently (configurable 0–5 times, delay
   10s/30s/1m/5m growing linearly). Permanent failures (live, no video, login/cookies, no yt-dlp) are not retried.
 - The window opens only on explicit request: tray menu, or a second launch of the app.
+- Links the watcher skips stay silent but not invisible: `JobView.Notice` is one line above the filter chips (in history → "Bajar de nuevo"; on the clipboard at startup → "Descargar"), until answered or another link arrives. Nothing is ever overwritten: a re-download with the files present ends as "Ya estaba en la carpeta" (`JobView.ALREADY_THERE`, no announced destination). A new download of a link replaces its finished rows.
 - One window only (user chose it): rows with text+icon buttons of equal width in a fixed column, filter chips,
   every row fills the same grid (user asked for it to "feel complete"), left to right: icon-only `dismiss`
   (✕ cancel/remove, 🗑 delete; tooltip names it), blue `primary` (none while downloading), plain `secondary` flush
@@ -165,7 +166,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
   runs when the file isn't mp4 already), `--no-playlist`, `--match-filter !is_live`; channel/live URLs never match.
 - Requirements are installed automatically (user request). In-app: `ensureTools()` (missing tools) and a weekly
   `brew upgrade yt-dlp`; both go through `runInstall()`, which sets `toolsBusy` so the worker doesn't start downloads.
-  `HOMEBREW_NO_AUTO_UPDATE=1` only for installs — an upgrade needs the index refresh to see new versions.
+  `HOMEBREW_NO_AUTO_UPDATE=1` on every brew call; upgrades refresh explicitly. `upgradeSteps`: `update`, `outdated`, `deps`, `fetch` run with the queue going (a bottle took 9 min once and the rows just said "en cola"), only `upgrade` holds it; rows and tooltip then say so (`toolsBusy`). Never `fetch --deps`: it brings build deps (llvm, rust: ~700 MB).
 - Compiled with `--release 21` so any recent Homebrew openjdk runs it; the launcher resolves java via `brew --prefix`.
 - YouTube needs `deno` on PATH and the user's YouTube cookies (without them YouTube answers "confirm you're not a bot").
 
@@ -174,7 +175,7 @@ User-facing docs (Spanish) are in README.md — keep it in sync with every featu
 menu-bar item from the Swift CGWindowList list below (2 px per point). System Events may still be denied. Also:
 - **Control channel** (loopback 48623, one line): `printf 'queue\n' | nc -w 3 127.0.0.1 48623` →
   `running | yt:ID Descargando 38% | …`. Also `tooltip`, `get TEXT`, `pause`, `resume`, `top KEY`, `cancel KEY`,
-  `remove KEY` (out of the list, like the row 🗑 / "Quitar"), `menu` (opens the menu-bar menu, again closes it: capture the
+  `remove KEY` (out of the list, like the row 🗑 / "Quitar"), `notice` / `accept` (the window's notice line), `menu` (opens the menu-bar menu, again closes it: capture the
   click highlight); an empty line shows the window.
 - **Window renders**: `java -cp build/test-classes DownloadsWindow --preview DIR` (light, dark, Fallidas filter,
   Detalles, empty) and `SettingsDialog --preview DIR`, after `./test.sh` compiled them. Read the PNGs.

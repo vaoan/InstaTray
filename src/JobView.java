@@ -45,6 +45,28 @@ final class JobView {
         }
     }
 
+    /** Job.message of a download that finished without new data: its files were already in the folder. */
+    static final String ALREADY_THERE = Lang.key("Ya estaba en la carpeta");
+
+    /** Links the clipboard watcher saw but did not download; one line in the window with a button to get them. */
+    record Notice(Kind kind, List<InstaTray.Link> links) {
+        enum Kind { ALREADY_DONE, COPIED_BEFORE }
+
+        String text() {
+            InstaTray.Link l = links.get(0);
+            String id = InstaTray.shortKey(l.key());
+            if (kind == Kind.ALREADY_DONE) {
+                return links.size() > 1 ? Lang.f("%d enlaces ya descargados", links.size()) : Lang.f("Ya descargado: %s %s", l.label(), id);
+            }
+            return links.size() > 1 ? Lang.f("%d enlaces copiados antes de abrir InstaTray", links.size())
+                    : Lang.f("Copiado antes de abrir InstaTray: %s %s", l.label(), id);
+        }
+
+        String action() {
+            return kind == Kind.ALREADY_DONE ? Lang.t("Bajar de nuevo") : Lang.t("Descargar");
+        }
+    }
+
     enum Tone { NORMAL, OK, BAD, MUTED }
 
     enum Bar { NONE, DETERMINATE, INDETERMINATE }
@@ -100,6 +122,11 @@ final class JobView {
 
     /** queuePosition: 1-based place among waiting jobs (only used for QUEUED). */
     static String subtitle(Job j, int queuePosition, long nowMs) {
+        return subtitle(j, queuePosition, nowMs, false);
+    }
+
+    /** toolsBusy: the queue is on hold while the download tools are being installed or replaced. */
+    static String subtitle(Job j, int queuePosition, long nowMs, boolean toolsBusy) {
         String site = j.link.label();
         return switch (j.status) {
             case DOWNLOADING -> {
@@ -111,8 +138,9 @@ final class JobView {
             }
             case QUEUED -> j.notBefore > nowMs
                     ? site + " · " + Lang.f("reintento en %d s", Math.max(1, (j.notBefore - nowMs) / 1000))
+                    : toolsBusy ? site + " · " + Lang.t("actualizando herramientas…")
                     : site + " · " + Lang.f("en cola (%s)", Lang.ordinal(queuePosition));
-            case DONE -> "✓ " + Lang.t("Listo") + " · " + ago(j.createdAt, nowMs)
+            case DONE -> "✓ " + (ALREADY_THERE.equals(j.message) ? Lang.t(ALREADY_THERE) : Lang.t("Listo")) + " · " + ago(j.createdAt, nowMs)
                     + (j.bytes >= 0 ? " · " + InstaTray.formatBytes(j.bytes) : "");
             // the reason was saved in the language of the moment; t() converts it if it is a whole table entry
             case FAILED -> "✕ " + (j.message.isBlank() ? Lang.t("Falló") : Lang.t(j.message));
@@ -173,6 +201,11 @@ final class JobView {
             case DONE -> Lang.t("Todavía no hay descargas listas.");
             case FAILED -> Lang.t("No hay descargas fallidas.");
         };
+    }
+
+    /** Takes the finished rows of this link out: a new download of it replaces them. */
+    static void dropFinished(List<Job> jobs, String key) {
+        jobs.removeIf(j -> j.isFinished() && j.link.key().equals(key));
     }
 
     /** What is downloading and waiting (in queue order), then finished jobs, newest first. */

@@ -9,13 +9,14 @@ arranca sin ventana, no avisa cuando algo sale bien y reintenta sola lo que fall
 
 ## Uso
 
-1. Doble clic en **`~/Documents/InstaTray.app`** (acceso directo a `InstaTray/InstaTray.app`).
+1. Doble clic en **`~/Documents/InstaTray.app`** (acceso directo a `GitHub/InstaTray/InstaTray.app`).
    Solo aparece la esfera en la barra de menú, **sin ventana**.
 2. Copia el enlace de un video y se descarga solo. El ícono muestra el progreso.
 3. Los videos quedan en **`Documentos/Videos`**, o en la carpeta que elijas.
 
 - **Ventana:** una sola, con todas las descargas (ver "La ventana"). Se abre desde el menú de la esfera (*Mostrar ventana* o *Cola e historial…*), o con doble clic en la app cuando ya está abierta (no abre otra copia). Nunca se abre sola.
 - **Campo "Pega un enlace…":** pega uno o varios enlaces y pulsa Enter o *Descargar*. Es como copiarlos, pero también vuelve a bajar lo ya descargado y prueba el extractor genérico (video embebido) aunque esa opción esté apagada. Si no encuentra un video compatible, lo dice debajo del campo y el texto se queda ahí para corregirlo.
+- **Enlaces que no se bajan solos:** copiar algo que ya bajaste no lo descarga de nuevo, y lo que ya estaba copiado al abrir InstaTray tampoco se baja. Sin notificaciones: al abrir la ventana, una línea arriba de los filtros lo dice y ofrece *Bajar de nuevo* o *Descargar*. Si los archivos siguen en la carpeta no se reemplazan y la fila dice "Ya estaba en la carpeta". Bajar un enlace otra vez reemplaza su fila anterior.
 - **Cerrar la ventana** no cierra el programa. Para salir del todo usa *Salir* en el menú de la esfera.
 
 ## Windows
@@ -184,8 +185,8 @@ Todas se guardan en `~/Library/Application Support/InstaTray/settings.properties
 | Espera entre reintentos | 30 s (10 s, 30 s, 1 min, 5 min) | Crece en cada intento: 1×, 2×, 3×… |
 
 **Requisitos:** muestra «Todo instalado ✓» o qué falta (yt-dlp, gallery-dl, ffmpeg, deno). El botón **Instalar o
-actualizar** instala lo que falte con Homebrew y actualiza los cuatro; mientras tanto la cola espera a que
-termine la descarga en curso. **Si no hay Homebrew, también lo instala**: baja el instalador oficial (`Homebrew.pkg`
+actualizar** instala lo que falte con Homebrew y actualiza los cuatro. La cola sigue mientras se baja la actualización y
+solo espera el momento de reemplazar los archivos (y a que termine la descarga en curso). **Si no hay Homebrew, también lo instala**: baja el instalador oficial (`Homebrew.pkg`
 de su página de GitHub) y macOS pide tu contraseña de administrador en su ventanita de siempre, sin Terminal. Solo si
 eso falla abre el instalador clásico en Terminal.
 
@@ -270,7 +271,7 @@ InstaTray necesita **Homebrew**, **Java** (`openjdk`), **yt-dlp**, **gallery-dl*
   - Si falla, avisa y muestra `setup.log` en el Finder.
 - **Si falta Homebrew**, pregunta antes de instalar y abre la **Terminal** con el instalador oficial de Homebrew (`setup.command`), porque Homebrew pide tu contraseña de administrador. Al terminar instala los paquetes y vuelve a abrir InstaTray.
 - **Con la app abierta**, si yt-dlp, gallery-dl, ffmpeg o deno desaparecen, los reinstala con Homebrew. Mientras tanto la cola espera.
-- **Una vez por semana** actualiza yt-dlp y gallery-dl en silencio (`brew upgrade yt-dlp gallery-dl`), porque los sitios cambian y las versiones viejas dejan de funcionar. La cola espera a que termine la descarga en curso.
+- **Una vez por semana** actualiza yt-dlp y gallery-dl en silencio, porque los sitios cambian y las versiones viejas dejan de funcionar. Busca y baja la actualización con la cola en marcha; las descargas solo esperan el momento de reemplazar los archivos (la fila dice "actualizando herramientas…"). Si ya están al día, nunca esperan.
 - El registro de instalaciones está en `~/Library/Application Support/InstaTray/setup.log`. Las actualizaciones quedan en `instatray.log`.
   - Si ves *Cannot install under Rosetta 2 in ARM default prefix*, el lanzador ya fuerza `brew`/`java` nativos en Apple Silicon; vuelve a abrir la app tras `./build.sh`.
 
@@ -284,7 +285,7 @@ Para qué sirve cada uno:
 ## Compilar
 
 ```
-cd ~/Documents/InstaTray
+cd ~/Documents/GitHub/InstaTray
 ./build.sh
 ```
 

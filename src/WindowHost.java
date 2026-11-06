@@ -17,6 +17,17 @@ interface WindowHost {
     /** Downloads every link in text (like the clipboard, re-downloads allowed); runs onNothingFound on the EDT. */
     void submit(String text, Runnable onNothingFound);
 
+    /** The queue is on hold while the download tools are being installed or replaced. */
+    boolean toolsBusy();
+
+    /** Links the clipboard watcher did not download, or null. */
+    JobView.Notice notice();
+
+    /** Downloads the links of the notice and clears it. */
+    void acceptNotice();
+
+    void dismissNotice();
+
     /** delta -1 = up, +1 = down, Integer.MIN_VALUE = to the top. */
     void move(Job job, int delta);
 

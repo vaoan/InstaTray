@@ -116,6 +116,42 @@ public class JobViewTest {
         T.eq("barNoneWhenQueued", JobView.Bar.NONE, JobView.barMode(job(Job.Status.QUEUED)));
         T.eq("barNoneWhenDone", JobView.Bar.NONE, JobView.barMode(done));
 
+        // a queue on hold says why, instead of a bare "en cola" for minutes
+        Job held = job(Job.Status.QUEUED);
+        T.eq("subtitleToolsBusy", "YouTube · actualizando herramientas…", JobView.subtitle(held, 1, NOW, true));
+        T.eq("subtitleNotBusy", "YouTube · en cola (1.º)", JobView.subtitle(held, 1, NOW, false));
+        held.notBefore = NOW + 12_000;
+        T.eq("subtitleRetryWinsOverToolsBusy", "YouTube · reintento en 12 s", JobView.subtitle(held, 1, NOW, true));
+        Job dlBusy = job(Job.Status.DOWNLOADING);
+        T.eq("subtitleToolsBusyOnlyQueued", "YouTube · preparando…", JobView.subtitle(dlBusy, 0, NOW, true));
+
+        // a forced download whose files were already there must not read as a new download
+        Job already = new Job(job(Job.Status.DONE).link, NOW - 5 * 60_000);
+        already.status = Job.Status.DONE;
+        already.message = JobView.ALREADY_THERE;
+        T.eq("subtitleAlreadyThere", "✓ Ya estaba en la carpeta · hace 5 min", JobView.subtitle(already, 0, NOW));
+
+        // notices about links the watcher did not download
+        InstaTray.Link la = new InstaTray.Link(InstaTray.Site.X, "x:1", "https://x.com/a/status/1");
+        InstaTray.Link lb = new InstaTray.Link(InstaTray.Site.X, "x:2", "https://x.com/b/status/2");
+        T.eq("noticeDoneOne", "Ya descargado: X 1", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).text());
+        T.eq("noticeDoneMany", "2 enlaces ya descargados", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la, lb)).text());
+        T.eq("noticeDoneAction", "Bajar de nuevo", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).action());
+        T.eq("noticeBeforeOne", "Copiado antes de abrir InstaTray: X 1", new JobView.Notice(JobView.Notice.Kind.COPIED_BEFORE, List.of(la)).text());
+        T.eq("noticeBeforeMany", "2 enlaces copiados antes de abrir InstaTray", new JobView.Notice(JobView.Notice.Kind.COPIED_BEFORE, List.of(la, lb)).text());
+        T.eq("noticeBeforeAction", "Descargar", new JobView.Notice(JobView.Notice.Kind.COPIED_BEFORE, List.of(la)).action());
+
+        // downloading a link again replaces its finished row instead of piling up copies
+        Job oldRow = job(Job.Status.DONE), failedRow = job(Job.Status.FAILED), waiting = job(Job.Status.QUEUED);
+        Job otherRow = new Job(lb, NOW);
+        otherRow.status = Job.Status.DONE;
+        Job sameKeyFailed = new Job(oldRow.link, NOW);
+        sameKeyFailed.status = Job.Status.FAILED;
+        Job sameKeyWaiting = new Job(oldRow.link, NOW);
+        List<Job> rowsList = new java.util.ArrayList<>(List.of(oldRow, sameKeyFailed, sameKeyWaiting, otherRow, failedRow, waiting));
+        JobView.dropFinished(rowsList, oldRow.link.key());
+        T.check("dropFinishedOnlySameKeyFinished", rowsList.equals(List.of(sameKeyWaiting, otherRow, failedRow, waiting)), rowsList.toString());
+
         // English: labels, ordinal, relative time (Lang is Spanish until forced)
         Lang.force(true);
         T.eq("enActionLabel", "Move to top", JobView.Action.TOP.text());
@@ -126,6 +162,9 @@ public class JobViewTest {
         Job doneEn = job(Job.Status.DONE);
         T.check("enAgo", JobView.subtitle(doneEn, 0, doneEn.createdAt + 5 * 60_000).contains("Done · 5 min ago"),
                 JobView.subtitle(doneEn, 0, doneEn.createdAt + 5 * 60_000));
+        T.eq("enToolsBusy", "YouTube · updating tools…", JobView.subtitle(job(Job.Status.QUEUED), 1, NOW, true));
+        T.eq("enNotice", "Already downloaded: X 1", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).text());
+        T.eq("enNoticeAction", "Download again", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).action());
         T.eq("enFooter", "Details ▸", JobView.footerLabel(JobView.FooterAction.DETAILS, false, false));
         Lang.force(false);
         T.eq("esAgain", "Poner primero", JobView.Action.TOP.text());

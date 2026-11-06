@@ -76,3 +76,6 @@ No se instaló nada: hace falta tu contraseña para instalar Homebrew.	Nothing w
 No se pudo instalar Homebrew desde aquí: se abrió el instalador en Terminal.	Could not install Homebrew from here: the installer opened in Terminal.
 Descargando Homebrew…	Downloading Homebrew…
 Instalando Homebrew… macOS te pedirá tu contraseña.	Installing Homebrew… macOS will ask for your password.
+InstaTray — %d en cola, actualizando herramientas	InstaTray — %d queued, updating tools
+Buscando actualizaciones… (la cola sigue)	Checking for updates… (the queue keeps going)
+Bajando actualizaciones de %s… (la cola sigue)	Downloading updates for %s… (the queue keeps going)

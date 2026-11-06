@@ -37,6 +37,10 @@ final class DownloadsWindow {
     private final Rows rows = new Rows();
     private final PlaceholderField field = new PlaceholderField(Lang.key("Pega un enlace…"));
     private final JLabel fieldMessage = new JLabel(" ");
+    private final JPanel noticeRow = new JPanel();
+    private final JLabel noticeLabel = new JLabel();
+    private final JLabel noticeAction = new JLabel();
+    private JobView.Notice shownNotice;
     private final JPanel chips = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final Map<JobView.Filter, Chip> chipFor = new EnumMap<>(JobView.Filter.class);
     private final JPanel footerRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
@@ -174,7 +178,11 @@ final class DownloadsWindow {
         fieldMessage.setFont(SMALL);
         fieldMessage.setBorder(new EmptyBorder(0, 6 + 2, 4, 0));
         fieldMessage.setVisible(false); // only takes room while it has something to say
-        band.add(fieldMessage, BorderLayout.NORTH);
+        JPanel messages = panel(new BorderLayout());
+        messages.setOpaque(false);
+        messages.add(fieldMessage, BorderLayout.NORTH);
+        messages.add(noticeRow(), BorderLayout.SOUTH);
+        band.add(messages, BorderLayout.NORTH);
         chips.setOpaque(false);
         for (JobView.Filter f : JobView.Filter.values()) {
             Chip c = new Chip(f);
@@ -229,6 +237,51 @@ final class DownloadsWindow {
         themed.add(details);
         themed.add(scroll);
         return details;
+    }
+
+    /** Stays until answered or until another link arrives: the user may open the window long after copying. */
+    private JComponent noticeRow() {
+        noticeRow.setLayout(new BoxLayout(noticeRow, BoxLayout.X_AXIS));
+        noticeRow.setOpaque(false);
+        noticeRow.setBorder(new EmptyBorder(0, 6 + 2, 6, 0));
+        noticeLabel.setFont(SMALL);
+        noticeLabel.setMinimumSize(new Dimension(0, 0)); // the text gives way, never the buttons
+        link(noticeAction, () -> {
+            host.acceptNotice();
+            reload();
+        });
+        JLabel dismiss = new JLabel("✕");
+        link(dismiss, () -> {
+            host.dismissNotice();
+            reload();
+        });
+        Lang.tip(dismiss, "Descartar");
+        dismiss.putClientProperty("secondary", true);
+        noticeRow.add(noticeLabel);
+        noticeRow.add(Box.createHorizontalStrut(10));
+        noticeRow.add(noticeAction);
+        noticeRow.add(Box.createHorizontalStrut(10));
+        noticeRow.add(dismiss);
+        noticeRow.add(Box.createHorizontalGlue());
+        noticeRow.setVisible(false);
+        return noticeRow;
+    }
+
+    private void refreshNotice() {
+        noticeLabel.setForeground(Theme.current().text());
+        noticeAction.setForeground(Theme.current().accent());
+        JobView.Notice n = host.notice();
+        if (n == shownNotice && (n == null || n.action().equals(noticeAction.getText()))) return;
+        shownNotice = n;
+        noticeRow.setVisible(n != null);
+        if (n != null) {
+            noticeLabel.setText(n.text());
+            noticeLabel.setMaximumSize(null);
+            noticeAction.setText(n.action());
+            noticeAction.setMaximumSize(noticeAction.getPreferredSize());
+            noticeAction.setMinimumSize(noticeAction.getPreferredSize());
+        }
+        noticeRow.getParent().revalidate();
     }
 
     private JComponent footer() {
@@ -307,7 +360,13 @@ final class DownloadsWindow {
         List<Job> queue = host.queueSnapshot();
         List<Job> all = JobView.ordered(queue, host.finishedSnapshot());
         rows.queue = queue;
+        boolean toolsBusy = host.toolsBusy();
+        if (toolsBusy != rows.toolsBusy) {
+            rows.toolsBusy = toolsBusy;
+            rows.list.repaint();
+        }
         rows.reload(all, filter);
+        refreshNotice();
         boolean downloading = false;
         for (int i = 0; i < rows.model.size() && !downloading; i++) downloading = rows.model.get(i).status == Job.Status.DOWNLOADING;
         if (animation != null && downloading != animation.isRunning()) {
@@ -615,6 +674,7 @@ final class DownloadsWindow {
         }
 
         private int lastSignature;
+        boolean toolsBusy;
 
         /** Everything a row shows that can change while the list stays the same; minutes so "hace 5 min" ticks. */
         private static int signature(List<Job> shown) {
@@ -761,7 +821,7 @@ final class DownloadsWindow {
                 case BAD -> p.bad();
                 case MUTED, NORMAL -> p.secondary();
             });
-            g.drawString(ellipsize(JobView.subtitle(job, rows.queuePosition(job), System.currentTimeMillis()),
+            g.drawString(ellipsize(JobView.subtitle(job, rows.queuePosition(job), System.currentTimeMillis(), rows.toolsBusy),
                     g.getFontMetrics(), textW), textX, titleY + 17);
             if (bar) {
                 Rectangle track = new Rectangle(textX, titleY + 23, textW, 8);
@@ -1183,6 +1243,12 @@ final class DownloadsWindow {
                 PreviewHost empty = new PreviewHost(false);
                 empty.watching = false; // shows the switch off
                 render(empty, false, JobView.Filter.ALL, false, new File(dir, "downloads-empty-light.png"));
+                PreviewHost notice = new PreviewHost(true);
+                notice.busy = true;
+                notice.shownNotice = new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(
+                        new InstaTray.Link(InstaTray.Site.X, "x:2117965355423531406", "https://x.com/a/status/2117965355423531406")));
+                render(notice, false, JobView.Filter.ALL, false, new File(dir, "downloads-notice-light.png"));
+                render(notice, true, JobView.Filter.ALL, false, 560, new File(dir, "downloads-notice-narrow-dark.png"));
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -1263,6 +1329,12 @@ final class DownloadsWindow {
         @Override public List<Job> queueSnapshot() { return queue; }
         @Override public List<Job> finishedSnapshot() { return finished; }
         @Override public void submit(String text, Runnable onNothingFound) {}
+        boolean busy;
+        JobView.Notice shownNotice;
+        @Override public boolean toolsBusy() { return busy; }
+        @Override public JobView.Notice notice() { return shownNotice; }
+        @Override public void acceptNotice() { shownNotice = null; }
+        @Override public void dismissNotice() { shownNotice = null; }
         @Override public void move(Job job, int delta) {}
         @Override public void cancel(Job job) {}
         @Override public void cancelAll() {}
