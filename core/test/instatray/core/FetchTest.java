@@ -68,6 +68,7 @@ public class FetchTest {
         Check.eq("ytDlpFirst", "/bin/yt-dlp", plain.get(0));
         Check.eq("ytDlpTemplate", dir + "/" + Site.YOUTUBE.template(), after(plain, "-o"));
         Check.eq("ytDlpUrlLast", YT.url(), plain.get(plain.size() - 1));
+        Check.eq("ytDlpOptionsEnd", "--", plain.get(plain.size() - 2));
         Check.eq("ffmpegLocation", "/bin/ffmpeg", after(plain, "--ffmpeg-location"));
         Check.that("noCookies", !plain.contains("--cookies"), plain.toString());
 
@@ -82,6 +83,11 @@ public class FetchTest {
         Check.eq("galleryPlain", Fetch.GALLERY_DL_FILENAME,
                 after(Fetch.command(new Fetch.Request(PIXIV, dir, null, null, null), tools, null), "-f"));
         Check.that("galleryNoFfmpeg", !gallery.contains("--ffmpeg-location"), gallery.toString());
+        Check.eq("galleryOptionsEnd", "--", gallery.get(gallery.size() - 2));
+        // A link can never pass for an option, whatever it says (an app may hand over text it didn't write).
+        List<String> sneaky = Fetch.command(new Fetch.Request(new Link(Site.OTHER, "other:x", "--exec=rm -rf ~"), dir, null, null, null),
+                tools, null);
+        Check.eq("sneakyAfterEnd", "--", sneaky.get(sneaky.size() - 2));
 
         List<String> embed = Fetch.command(new Fetch.Request(new Link(Site.EMBED, "embed:e.com:1", "https://e.com/v"),
                 dir, null, null, null), tools, null);

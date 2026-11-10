@@ -238,6 +238,8 @@ public final class Fetch {
                     + "%(protocol)s · %(resolution)s · %(filesize,filesize_approx)s · %(url).120s"));
         }
         if (cookiesCopy != null) cmd.addAll(List.of("--cookies", cookiesCopy.toString()));
+        // Options end here: whatever the link says, the tool can't take it for one (both tools accept "--").
+        cmd.add("--");
         cmd.add(r.link().url());
         return cmd;
     }
