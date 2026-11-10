@@ -1,3 +1,4 @@
+import instatray.core.Site;
 import java.awt.*;
 import java.awt.font.GlyphVector;
 import java.awt.geom.*;
@@ -61,6 +62,11 @@ public final class AeroIcon {
     }
 
     private AeroIcon() {}
+
+    /** Each site has a palette of the same name; the catch-alls share OTHER. */
+    static Palette palette(Site site) {
+        return site.isCatchAll() ? Palette.OTHER : Palette.valueOf(site.name());
+    }
 
     /** Menu-bar icon: 22pt at 2x for Retina. */
     static final int TRAY_PX = 44;

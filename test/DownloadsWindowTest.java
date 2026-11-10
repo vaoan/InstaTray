@@ -1,8 +1,10 @@
+import instatray.core.Link;
+import instatray.core.Site;
 import java.util.List;
 
 public class DownloadsWindowTest {
     static Job job(String id, Job.Status status) {
-        Job j = new Job(new InstaTray.Link(InstaTray.Site.YOUTUBE, "yt:" + id, "https://youtu.be/" + id), System.currentTimeMillis());
+        Job j = new Job(new Link(Site.YOUTUBE, "yt:" + id, "https://youtu.be/" + id), System.currentTimeMillis());
         j.status = status;
         return j;
     }

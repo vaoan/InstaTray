@@ -1,3 +1,5 @@
+import instatray.core.Link;
+import instatray.core.Site;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -18,7 +20,7 @@ final class Job {
 
     private static final int MAX_OUTPUT_LINES = 400;
 
-    final InstaTray.Link link;
+    final Link link;
     final long createdAt;
     volatile Status status = Status.QUEUED;
     /** 0..100 while downloading, -1 when unknown. */
@@ -42,7 +44,7 @@ final class Job {
     final List<String> destinations = Collections.synchronizedList(new ArrayList<>());
     private final List<String> output = Collections.synchronizedList(new ArrayList<>());
 
-    Job(InstaTray.Link link, long createdAt) {
+    Job(Link link, long createdAt) {
         this.link = link;
         this.createdAt = createdAt;
     }
@@ -89,7 +91,7 @@ final class Job {
         String[] f = line.split("\t", -1);
         if (f.length < 7) return null;
         try {
-            InstaTray.Link link = new InstaTray.Link(InstaTray.Site.valueOf(f[3]), f[1], f[2]);
+            Link link = new Link(Site.valueOf(f[3]), f[1], f[2]);
             Job job = new Job(link, Long.parseLong(f[0]));
             Status st = Status.valueOf(f[4]);
             job.status = st == Status.DOWNLOADING ? Status.QUEUED : st;

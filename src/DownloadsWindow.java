@@ -1,3 +1,5 @@
+import instatray.core.Link;
+import instatray.core.Site;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
@@ -777,7 +779,7 @@ final class DownloadsWindow {
         private Job job;
         private int index;
         private boolean selected;
-        private final Map<InstaTray.Site, Image> orbs = new HashMap<>();
+        private final Map<Site, Image> orbs = new HashMap<>();
 
         @Override
         public Component getListCellRendererComponent(JList<? extends Job> list, Job value, int index, boolean selected, boolean focus) {
@@ -843,8 +845,8 @@ final class DownloadsWindow {
             g.dispose();
         }
 
-        private Image orb(InstaTray.Site site) {
-            return orbs.computeIfAbsent(site, s -> AeroIcon.render(56, s.palette(), ""));
+        private Image orb(Site site) {
+            return orbs.computeIfAbsent(site, s -> AeroIcon.render(56, AeroIcon.palette(s), ""));
         }
     }
 
@@ -1246,7 +1248,7 @@ final class DownloadsWindow {
                 PreviewHost notice = new PreviewHost(true);
                 notice.busy = true;
                 notice.shownNotice = new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(
-                        new InstaTray.Link(InstaTray.Site.X, "x:2117965355423531406", "https://x.com/a/status/2117965355423531406")));
+                        new Link(Site.X, "x:2117965355423531406", "https://x.com/a/status/2117965355423531406")));
                 render(notice, false, JobView.Filter.ALL, false, new File(dir, "downloads-notice-light.png"));
                 render(notice, true, JobView.Filter.ALL, false, 560, new File(dir, "downloads-notice-narrow-dark.png"));
             } catch (Exception e) {
@@ -1299,28 +1301,28 @@ final class DownloadsWindow {
                 return;
             }
             long now = System.currentTimeMillis();
-            Job dl = job(InstaTray.Site.YOUTUBE, "yt:1", now, Job.Status.DOWNLOADING, "Cómo hacer pan casero en 10 minutos");
+            Job dl = job(Site.YOUTUBE, "yt:1", now, Job.Status.DOWNLOADING, "Cómo hacer pan casero en 10 minutos");
             dl.percent = 45;
             dl.speed = "2.1 MB/s";
             dl.eta = "0:12";
             queue.add(dl);
-            queue.add(job(InstaTray.Site.INSTAGRAM, "ig:2", now, Job.Status.QUEUED, "Reel de @fulano"));
-            Job done = job(InstaTray.Site.TIKTOK, "tt:3", now - 5 * 60_000, Job.Status.DONE, "Baile viral #fyp");
+            queue.add(job(Site.INSTAGRAM, "ig:2", now, Job.Status.QUEUED, "Reel de @fulano"));
+            Job done = job(Site.TIKTOK, "tt:3", now - 5 * 60_000, Job.Status.DONE, "Baile viral #fyp");
             done.files = List.of("/tmp/baile.mp4");
             done.bytes = 12_582_912;
             finished.add(done);
-            Job f1 = job(InstaTray.Site.OTHER, "ytdl:Generic:4", now - 20 * 60_000, Job.Status.FAILED, "");
+            Job f1 = job(Site.OTHER, "ytdl:Generic:4", now - 20 * 60_000, Job.Status.FAILED, "");
             f1.message = "No deja bajar este video fuera de su página";
             f1.addOutput("[generic] Extracting URL: https://embed.ejemplo.com/video/123");
             f1.addOutput("ERROR: HTTP Error 403: Forbidden");
             finished.add(f1);
-            Job f2 = job(InstaTray.Site.INSTAGRAM, "ig:5", now - 60 * 60_000, Job.Status.FAILED, "Un título larguísimo ".repeat(15));
+            Job f2 = job(Site.INSTAGRAM, "ig:5", now - 60 * 60_000, Job.Status.FAILED, "Un título larguísimo ".repeat(15));
             f2.message = "Faltan las cookies de Instagram";
             finished.add(f2);
         }
 
-        private static Job job(InstaTray.Site site, String key, long at, Job.Status st, String title) {
-            Job j = new Job(new InstaTray.Link(site, key, "https://embed.ejemplo.com/video/" + key.hashCode()), at);
+        private static Job job(Site site, String key, long at, Job.Status st, String title) {
+            Job j = new Job(new Link(site, key, "https://embed.ejemplo.com/video/" + key.hashCode()), at);
             j.status = st;
             j.title = title;
             return j;

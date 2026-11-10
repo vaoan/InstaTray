@@ -1,6 +1,8 @@
+import instatray.core.Link;
+import instatray.core.Site;
 public class JobTsvTest {
     public static void main(String[] args) {
-        InstaTray.Link link = new InstaTray.Link(InstaTray.Site.YOUTUBE, "yt:abc", "https://youtu.be/abc");
+        Link link = new Link(Site.YOUTUBE, "yt:abc", "https://youtu.be/abc");
 
         Job job = new Job(link, 1_700_000_000_000L);
         job.status = Job.Status.DONE;

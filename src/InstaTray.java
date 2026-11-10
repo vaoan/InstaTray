@@ -26,6 +26,15 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.LinkedList;
 import java.awt.desktop.AppReopenedListener;
+import instatray.core.Cookies;
+import instatray.core.Engine;
+import instatray.core.Fetch;
+import instatray.core.Link;
+import instatray.core.Links;
+import instatray.core.Probe;
+import instatray.core.Progress;
+import instatray.core.Site;
+import instatray.core.Tools;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -58,327 +67,11 @@ public final class InstaTray implements WindowHost {
     private static final int MAX_JOBS = 200;
     private static final Path LOG = STATE_DIR.resolve("instatray.log");
 
-    private static final String TITLED = "%(title).80B_[%(id)s].%(ext)s";
-    /** "{num:?_//}" adds "_N" only for multi-file posts, so single files don't end in "_None". */
-    private static final String GALLERY_DL_FILENAME = "{category}_{id}{num:?_//}.{extension}";
-    /** Video/animation files kept from gallery-dl posts ("zip" = Pixiv ugoira, converted to mp4). */
-    private static final String GALLERY_DL_FILTER =
-            "extension in ('mp4', 'webm', 'mov', 'm4v', 'mkv', 'gif', 'zip')";
-
-    /** Which downloader handles a site. */
-    enum Engine { YT_DLP, GALLERY_DL }
-
-    enum Site {
-        INSTAGRAM("Instagram", "%(channel,uploader|instagram)s_%(id)s_%(autonumber)02d.%(ext)s",
-                new String[]{"instagram"}, "instagram.com"),
-        YOUTUBE("YouTube", TITLED, new String[]{"youtube"}, "youtube.com"),
-        TIKTOK("TikTok", "%(uploader|tiktok)s_%(id)s.%(ext)s", new String[]{"tiktok"}, "tiktok.com"),
-        X("X", "%(uploader_id|x)s_%(id)s.%(ext)s", new String[]{"x.com", "twitter"}, "x.com", "twitter.com"),
-        TWITCH("Twitch", TITLED, new String[]{"twitch"}, "twitch.tv"),
-        REDDIT("Reddit", TITLED, new String[]{"reddit"}, "reddit.com", "redd.it"),
-        FACEBOOK("Facebook", "%(uploader|facebook)s_%(id)s.%(ext)s", new String[]{"facebook"},
-                "facebook.com", "fb.watch"),
-        PINTEREST("Pinterest", "pinterest_%(id)s.%(ext)s", new String[]{"pinterest"}, "pinterest.com", "pin.it"),
-        BLUESKY("Bluesky", "%(uploader_id|bluesky)s_%(id)s.%(ext)s", new String[]{"bsky"}, "bsky.app"),
-        KICK("Kick", TITLED, new String[]{"kick.com"}, "kick.com"),
-        VIMEO("Vimeo", TITLED, new String[]{"vimeo"}, "vimeo.com"),
-        DAILYMOTION("Dailymotion", TITLED, new String[]{"dailymotion"}, "dailymotion.com"),
-        RUMBLE("Rumble", TITLED, new String[]{"rumble"}, "rumble.com"),
-        STREAMABLE("Streamable", TITLED, new String[]{"streamable"}, "streamable.com"),
-        IMGUR("Imgur", "imgur_%(id)s.%(ext)s", new String[]{"imgur"}, "imgur.com"),
-        NINEGAG("9GAG", TITLED, new String[]{"9gag"}, "9gag.com"),
-        TUMBLR("Tumblr", "%(uploader_id|tumblr)s_%(id)s.%(ext)s", new String[]{"tumblr"}, "tumblr.com"),
-        LINKEDIN("LinkedIn", TITLED, new String[]{"linkedin"}, "linkedin.com"),
-        SNAPCHAT("Snapchat", "snapchat_%(id)s.%(ext)s", new String[]{"snapchat"}, "snapchat.com"),
-        BILIBILI("Bilibili", TITLED, new String[]{"bilibili"}, "bilibili.com"),
-        NEWGROUNDS("Newgrounds", TITLED, new String[]{"newgrounds"}, "newgrounds.com"),
-        IWARA("Iwara", TITLED, new String[]{"iwara"}, "iwara.tv"),
-        PATREON("Patreon", TITLED, new String[]{"patreon"}, "patreon.com"),
-        WEIBO("Weibo", "weibo_%(id)s.%(ext)s", new String[]{"weibo"}, "weibo.com", "weibo.cn"),
-        // gallery-dl sites: artists' own platforms (yt-dlp has no extractor for them)
-        PIXIV(Engine.GALLERY_DL, "Pixiv", new String[]{"pixiv"}, "pixiv.net"),
-        FANBOX(Engine.GALLERY_DL, "FANBOX", new String[]{"fanbox"}, "fanbox.cc"),
-        FANTIA(Engine.GALLERY_DL, "Fantia", new String[]{"fantia"}, "fantia.jp"),
-        DEVIANTART(Engine.GALLERY_DL, "DeviantArt", new String[]{"deviantart"}, "deviantart.com"),
-        MISSKEY(Engine.GALLERY_DL, "Misskey", new String[]{"misskey"}, "misskey.io"),
-        MASTODON(Engine.GALLERY_DL, "Mastodon", new String[]{"mastodon", "pawoo"}, "mastodon.social", "pawoo.net"),
-        // Catch-alls: any other single-video URL yt-dlp has an extractor for, and posts on the creator-owned
-        // platforms gallery-dl knows (CREATOR_PLATFORMS). Detected by asking the libraries (probeLibraries)
-        OTHER(Lang.key("Otros sitios"), "%(extractor_key)s_%(title).70B_[%(id)s].%(ext)s", new String[0]),
-        OTHER_GALLERY(Engine.GALLERY_DL, Lang.key("Otros sitios"), new String[0]),
-        // Opt-in ("Buscar video embebido en otras páginas"): pages only yt-dlp's Generic extractor takes, which
-        // looks for <video>/<source>, HLS/DASH manifests, og:video and known player iframes in the HTML
-        EMBED(Lang.key("Video embebido"), "%(webpage_url_domain)s_%(title).70B_[%(id)s].%(ext)s", new String[0]);
-
-        final Engine engine;
-        /** Spanish: also the subfolder name on disk, which never changes with the language; shown via display(). */
-        final String label;
-        /** yt-dlp output template (gallery-dl sites use {@link #GALLERY_DL_FILENAME}). */
-        final String template;
-        private final String[] cookieKeys;
-        private final String[] domains;
-
-        /** The name shown to the user, in the current language (only the catch-alls have Spanish names). */
-        String display() {
-            return Lang.t(label);
-        }
-
-        Site(String label, String template, String[] cookieKeys, String... domains) {
-            this(Engine.YT_DLP, label, template, cookieKeys, domains);
-        }
-
-        Site(Engine engine, String label, String[] cookieKeys, String... domains) {
-            this(engine, label, null, cookieKeys, domains);
-        }
-
-        Site(Engine engine, String label, String template, String[] cookieKeys, String... domains) {
-            this.engine = engine;
-            this.label = label;
-            this.template = template;
-            this.cookieKeys = cookieKeys;
-            this.domains = domains;
-        }
-
-        /** True if a Netscape cookie line belongs to this site (domain or any subdomain). */
-        boolean ownsCookieLine(String line) {
-            return cookieLineIn(line, domains);
-        }
-
-        /** True if the host is this site's (domain or any subdomain). */
-        boolean ownsHost(String host) {
-            for (String d : domains) {
-                if (host.equals(d) || host.endsWith("." + d)) return true;
-            }
-            return false;
-        }
-
-        /** Each site has an orb color of the same name; both catch-alls share OTHER. */
-        AeroIcon.Palette palette() {
-            return isCatchAll() ? AeroIcon.Palette.OTHER : AeroIcon.Palette.valueOf(name());
-        }
-
-        boolean isCatchAll() {
-            return this == OTHER || this == OTHER_GALLERY || this == EMBED;
-        }
-
-        boolean matchesCookieFile(String lowerName) {
-            for (String k : cookieKeys) {
-                // keys with a dot are whole domains ("x.com", "kick.com"): they must start the file name,
-                // so "netflix.com_cookies.txt" is not taken for X
-                boolean hit = k.contains(".")
-                        ? lowerName.matches("(?:www\\.)?" + Pattern.quote(k) + ".*")
-                        : lowerName.contains(k);
-                if (hit) return true;
-            }
-            return false;
-        }
-    }
-
-    /**
-     * How a supported link is recognized: only URLs of a single video/post are matched, never profiles,
-     * channels or live pages, so copying a profile can't start hundreds of downloads.
-     *
-     * @param key the history key (site prefix + id) used to skip repeats
-     * @param url the clean URL handed to yt-dlp (tracking parameters dropped)
-     */
-    record LinkRule(Site site, Pattern pattern, Function<Matcher, String> key, Function<Matcher, String> url) {}
-
-    private static final String SUB = "(?:[a-z0-9-]+\\.)*"; // any subdomain: www., m., old., co. …
-
-    private static LinkRule rule(Site site, String regex, Function<Matcher, String> key, Function<Matcher, String> url) {
-        return new LinkRule(site, Pattern.compile(regex, Pattern.CASE_INSENSITIVE), key, url);
-    }
-
-    /** The matched URL without query string or fragment. */
-    private static String clean(Matcher m) {
-        return m.group(0).replaceFirst("[?#].*$", "");
-    }
-
-    static final List<LinkRule> RULES = List.of(
-            // Instagram reel / post / tv, with or without the user in the path, and kk/dd/ig mirrors
-            rule(Site.INSTAGRAM, "https?://" + SUB + "(?:kk|dd|ig)?instagram\\.com/(?:[A-Za-z0-9_.]+/)?(reels?|p|tv)/([A-Za-z0-9_-]+)",
-                    m -> "ig:" + m.group(2),
-                    m -> "https://www.instagram.com/" + m.group(1).toLowerCase(Locale.ROOT).replace("reels", "reel") + "/" + m.group(2) + "/"),
-            // YouTube watch / shorts / live (finished) / embed, youtu.be
-            rule(Site.YOUTUBE, "https?://(?:" + SUB + "youtube\\.com/(?:watch\\?(?:\\S*?&)?v=|shorts/|live/|embed/)|youtu\\.be/)([A-Za-z0-9_-]{11})",
-                    m -> "yt:" + m.group(1), m -> "https://www.youtube.com/watch?v=" + m.group(1)),
-            // TikTok video page and short links
-            rule(Site.TIKTOK, "https?://" + SUB + "tiktok\\.com/@([A-Za-z0-9_.-]+)/video/(\\d+)",
-                    m -> "tt:" + m.group(2), m -> "https://www.tiktok.com/@" + m.group(1) + "/video/" + m.group(2)),
-            rule(Site.TIKTOK, "https?://(?:vm|vt)\\.tiktok\\.com/([A-Za-z0-9]+)",
-                    m -> "tt:short:" + m.group(1), m -> clean(m) + "/"),
-            rule(Site.TIKTOK, "https?://" + SUB + "tiktok\\.com/t/([A-Za-z0-9]+)",
-                    m -> "tt:short:" + m.group(1), m -> clean(m) + "/"),
-            // X / Twitter and fxtwitter / vxtwitter / fixupx mirrors
-            rule(Site.X, "https?://" + SUB + "(?:x|twitter|fxtwitter|vxtwitter|fixupx|fixvx)\\.com/([A-Za-z0-9_]+)/status(?:es)?/(\\d+)",
-                    m -> "x:" + m.group(2), m -> "https://x.com/" + m.group(1) + "/status/" + m.group(2)),
-            // Twitch clips and past broadcasts (bare channel URLs are live and ignored on purpose)
-            rule(Site.TWITCH, "https?://(?:clips\\.twitch\\.tv/|" + SUB + "twitch\\.tv/[A-Za-z0-9_]+/clip/)([A-Za-z0-9_-]+)",
-                    m -> "twclip:" + m.group(1), m -> "https://clips.twitch.tv/" + m.group(1)),
-            rule(Site.TWITCH, "https?://" + SUB + "twitch\\.tv/videos/(\\d+)",
-                    m -> "twvod:" + m.group(1), m -> "https://www.twitch.tv/videos/" + m.group(1)),
-            // Reddit post, share link (/s/), redd.it and v.redd.it
-            rule(Site.REDDIT, "https?://" + SUB + "reddit\\.com/r/([A-Za-z0-9_]+)/comments/([a-z0-9]+)",
-                    m -> "rd:" + m.group(2), m -> "https://www.reddit.com/r/" + m.group(1) + "/comments/" + m.group(2) + "/"),
-            rule(Site.REDDIT, "https?://" + SUB + "reddit\\.com/r/[A-Za-z0-9_]+/s/([A-Za-z0-9]+)",
-                    m -> "rd:s:" + m.group(1), InstaTray::clean),
-            rule(Site.REDDIT, "https?://v\\.redd\\.it/([a-z0-9]+)", m -> "rd:v:" + m.group(1), InstaTray::clean),
-            rule(Site.REDDIT, "https?://redd\\.it/([a-z0-9]+)", m -> "rd:" + m.group(1), InstaTray::clean),
-            // Facebook watch, reel, /videos/, share links and fb.watch
-            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/watch/?\\?(?:\\S*?&)?v=(\\d+)",
-                    m -> "fb:" + m.group(1), m -> "https://www.facebook.com/watch/?v=" + m.group(1)),
-            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/reel/(\\d+)",
-                    m -> "fb:" + m.group(1), m -> "https://www.facebook.com/reel/" + m.group(1)),
-            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/[A-Za-z0-9.]+/videos/(?:[^/\\s?#]+/)?(\\d+)",
-                    m -> "fb:" + m.group(1), InstaTray::clean),
-            rule(Site.FACEBOOK, "https?://" + SUB + "facebook\\.com/share/[vr]/([A-Za-z0-9]+)",
-                    m -> "fb:s:" + m.group(1), InstaTray::clean),
-            rule(Site.FACEBOOK, "https?://fb\\.watch/([A-Za-z0-9_-]+)", m -> "fb:w:" + m.group(1), InstaTray::clean),
-            // Pinterest pin (any country domain) and pin.it short links
-            rule(Site.PINTEREST, "https?://" + SUB + "pinterest\\.[a-z]{2,3}(?:\\.[a-z]{2})?/pin/(\\d+)",
-                    m -> "pin:" + m.group(1), m -> "https://www.pinterest.com/pin/" + m.group(1) + "/"),
-            rule(Site.PINTEREST, "https?://pin\\.it/([A-Za-z0-9]+)", m -> "pin:s:" + m.group(1), InstaTray::clean),
-            // Bluesky post
-            rule(Site.BLUESKY, "https?://bsky\\.app/profile/([^/\\s]+)/post/([a-z0-9]+)",
-                    m -> "bsky:" + m.group(2), m -> "https://bsky.app/profile/" + m.group(1) + "/post/" + m.group(2)),
-            // Kick clips (path or ?clip=) and past broadcasts; channel pages are live and ignored
-            rule(Site.KICK, "https?://" + SUB + "kick\\.com/([A-Za-z0-9_-]+)(?:/clips/|\\?clip=)(clip_[A-Za-z0-9]+)",
-                    m -> "kick:" + m.group(2), m -> "https://kick.com/" + m.group(1) + "/clips/" + m.group(2)),
-            rule(Site.KICK, "https?://" + SUB + "kick\\.com/(?:video|[A-Za-z0-9_-]+/videos)/([0-9a-f-]{36})",
-                    m -> "kick:" + m.group(1), InstaTray::clean),
-            // Vimeo video (optional private hash) and player embeds
-            rule(Site.VIMEO, "https?://(?:www\\.|player\\.)?vimeo\\.com/(?:video/)?(\\d{5,})(?:/([0-9a-f]{6,}))?",
-                    m -> "vimeo:" + m.group(1),
-                    m -> "https://vimeo.com/" + m.group(1) + (m.group(2) != null ? "/" + m.group(2) : "")),
-            // Dailymotion video and dai.ly
-            rule(Site.DAILYMOTION, "https?://(?:" + SUB + "dailymotion\\.com/video/|dai\\.ly/)([a-z0-9]+)",
-                    m -> "dm:" + m.group(1), m -> "https://www.dailymotion.com/video/" + m.group(1)),
-            // Rumble video page and embed
-            rule(Site.RUMBLE, "https?://" + SUB + "rumble\\.com/(v[a-z0-9]+)-[^\\s?#]*\\.html",
-                    m -> "rumble:" + m.group(1), InstaTray::clean),
-            rule(Site.RUMBLE, "https?://" + SUB + "rumble\\.com/embed/(v[a-z0-9]+)",
-                    m -> "rumble:" + m.group(1), m -> "https://rumble.com/embed/" + m.group(1) + "/"),
-            // Streamable video (short id; site pages like /login are excluded)
-            rule(Site.STREAMABLE, "https?://" + SUB + "streamable\\.com/(?:[eo]/)?"
-                            + "(?!(?:login|signup|upload|settings|pricing|about|privacy|terms|blog|careers|documents?)\\b)"
-                            + "([a-z0-9]{4,10})(?![a-z0-9/])",
-                    m -> "streamable:" + m.group(1), m -> "https://streamable.com/" + m.group(1)),
-            // Imgur post, gallery, album or direct video file
-            rule(Site.IMGUR, "https?://(?:i\\.)?imgur\\.com/(?:(?:gallery|a|t/[a-z0-9_]+)/)?"
-                            + "(?!(?:upload|signin|register|user|search|hot|new|top|about|privacy|rules)\\b)"
-                            + "([A-Za-z0-9]{5,8})(?:\\.(?:mp4|gifv|webm))?(?![A-Za-z0-9/])",
-                    m -> "imgur:" + m.group(1), InstaTray::clean),
-            // 9GAG post
-            rule(Site.NINEGAG, "https?://" + SUB + "9gag\\.com/gag/([A-Za-z0-9]+)",
-                    m -> "9gag:" + m.group(1), m -> "https://9gag.com/gag/" + m.group(1)),
-            // Tumblr post: blog.tumblr.com/post/ID or tumblr.com/blog/ID
-            rule(Site.TUMBLR, "https?://([a-z0-9-]+)\\.tumblr\\.com/post/(\\d+)",
-                    m -> "tumblr:" + m.group(2), m -> "https://" + m.group(1) + ".tumblr.com/post/" + m.group(2)),
-            rule(Site.TUMBLR, "https?://(?:www\\.)?tumblr\\.com/([a-z0-9-]+)/(\\d+)",
-                    m -> "tumblr:" + m.group(2), m -> "https://" + m.group(1) + ".tumblr.com/post/" + m.group(2)),
-            // LinkedIn post (the only URL form yt-dlp supports)
-            rule(Site.LINKEDIN, "https?://" + SUB + "linkedin\\.com/posts/[^\\s?#/]*?-(\\d{15,})-[A-Za-z0-9_-]{2,}",
-                    m -> "li:" + m.group(1), InstaTray::clean),
-            // Snapchat public Spotlight
-            rule(Site.SNAPCHAT, "https?://" + SUB + "snapchat\\.com/spotlight/([A-Za-z0-9_-]+)",
-                    m -> "snap:" + m.group(1), InstaTray::clean),
-            // Bilibili video (BV / av ids) and b23.tv short links
-            rule(Site.BILIBILI, "https?://" + SUB + "bilibili\\.com/video/(BV[A-Za-z0-9]+|av\\d+)",
-                    m -> "bili:" + m.group(1), m -> "https://www.bilibili.com/video/" + m.group(1) + "/"),
-            rule(Site.BILIBILI, "https?://b23\\.tv/([A-Za-z0-9]+)", m -> "bili:s:" + m.group(1), InstaTray::clean),
-            // Newgrounds movie
-            rule(Site.NEWGROUNDS, "https?://" + SUB + "newgrounds\\.com/portal/view/(\\d+)",
-                    m -> "ng:" + m.group(1), m -> "https://www.newgrounds.com/portal/view/" + m.group(1)),
-            // Iwara video
-            rule(Site.IWARA, "https?://" + SUB + "iwara\\.tv/video/([A-Za-z0-9]+)",
-                    m -> "iwara:" + m.group(1), m -> "https://www.iwara.tv/video/" + m.group(1)),
-            // Patreon post (only what the account in the cookies can see)
-            rule(Site.PATREON, "https?://" + SUB + "patreon\\.com/posts/(?:[A-Za-z0-9-]*-)?(\\d+)",
-                    m -> "patreon:" + m.group(1), InstaTray::clean),
-            // Weibo post (desktop and mobile)
-            rule(Site.WEIBO, "https?://(?:www\\.)?weibo\\.com/\\d+/([A-Za-z0-9]+)",
-                    m -> "weibo:" + m.group(1), InstaTray::clean),
-            rule(Site.WEIBO, "https?://m\\.weibo\\.cn/(?:detail|status)/(\\d+)",
-                    m -> "weibo:" + m.group(1), InstaTray::clean),
-            // Pixiv artwork (ugoira animations are converted to mp4)
-            rule(Site.PIXIV, "https?://" + SUB + "pixiv\\.net/(?:[a-z]{2}/)?(?:artworks|i)/(\\d+)",
-                    m -> "px:" + m.group(1), m -> "https://www.pixiv.net/artworks/" + m.group(1)),
-            rule(Site.PIXIV, "https?://" + SUB + "pixiv\\.net/member_illust\\.php\\?\\S*?illust_id=(\\d+)",
-                    m -> "px:" + m.group(1), m -> "https://www.pixiv.net/artworks/" + m.group(1)),
-            // pixiv FANBOX post (creator.fanbox.cc or fanbox.cc/@creator)
-            rule(Site.FANBOX, "https?://(?:[a-z0-9-]+\\.fanbox\\.cc|(?:www\\.)?fanbox\\.cc/@[a-z0-9_-]+)/posts/(\\d+)",
-                    m -> "fanbox:" + m.group(1), InstaTray::clean),
-            // Fantia post
-            rule(Site.FANTIA, "https?://(?:www\\.)?fantia\\.jp/posts/(\\d+)",
-                    m -> "fantia:" + m.group(1), m -> "https://fantia.jp/posts/" + m.group(1)),
-            // DeviantArt deviation (slug ends with the numeric id)
-            rule(Site.DEVIANTART, "https?://(?:www\\.)?deviantart\\.com/[A-Za-z0-9_-]+/art/[A-Za-z0-9_-]*?(\\d{6,})",
-                    m -> "da:" + m.group(1), InstaTray::clean),
-            // Misskey note
-            rule(Site.MISSKEY, "https?://misskey\\.io/notes/([a-z0-9]+)", m -> "mk:" + m.group(1), InstaTray::clean),
-            // Mastodon status on the instances gallery-dl knows
-            rule(Site.MASTODON, "https?://(mastodon\\.social|pawoo\\.net)/@[A-Za-z0-9_]+/(\\d+)",
-                    m -> "masto:" + m.group(1) + ":" + m.group(2), InstaTray::clean));
-
-    /** Every site except the two catch-alls. */
-    static final List<Site> NAMED_SITES = Arrays.stream(Site.values()).filter(s -> !s.isCatchAll()).toList();
-
-    /**
-     * gallery-dl categories handled by OTHER_GALLERY: platforms where creators post their own work. Aggregators,
-     * boorus, manga/doujin sites and file hosts that re-host others' work stay out on purpose.
-     */
-    static final List<String> CREATOR_PLATFORMS = List.of(
-            "500px", "artstation", "boosty", "cara", "cien", "fansly", "flickr", "foriio", "furaffinity",
-            "inkbunny", "itaku", "lofter", "pexels", "pillowfort", "plurk", "poipiku", "postype", "skeb",
-            "smugmug", "sofurry", "subscribestar", "vk", "vsco", "weasyl", "xfolio");
-
-    /** Most items a catch-all yt-dlp link may download (an extractor can return an album or a multi-part episode). */
-    private static final int CATCH_ALL_MAX_ITEMS = 10;
-    /** Most unknown URLs checked per clipboard change. */
-    private static final int MAX_PROBED_URLS = 5;
-    private static final Pattern ANY_URL = Pattern.compile("https?://[^\\s<>\"'`]+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern URL_HOST = Pattern.compile("^https?://(?:[^@/?#]*@)?([^/?#:]+)", Pattern.CASE_INSENSITIVE);
-
-    /**
-     * Asks yt-dlp which extractor takes each URL (the first suitable one, as yt-dlp itself picks). Accepted:
-     * working extractors that return a single video, or "any" whose name doesn't say playlist/channel/etc.
-     * Prints "ExtractorKey<TAB>id", "*" (only the Generic extractor would try it) or "-" per URL.
-     */
-    private static final String YT_DLP_PROBE = """
-            import sys
-            from yt_dlp.extractor import gen_extractor_classes
-            ies = list(gen_extractor_classes())
-            lists = ('playlist', 'user', 'channel', 'tab', 'series', 'season', 'album', 'show', 'search', 'feed')
-            for url in sys.argv[1:]:
-                ie = next((i for i in ies if i.suitable(url)), None)
-                ok = (ie is not None and ie.ie_key() != 'Generic' and ie.working()
-                      and (ie._RETURN_TYPE == 'video'
-                           or ie._RETURN_TYPE == 'any' and not any(w in ie.ie_key().lower() for w in lists)))
-                generic = ie is not None and ie.ie_key() == 'Generic'
-                print(ie.ie_key() + '\t' + str(ie.get_temp_id(url) or '') if ok else '*' if generic else '-', flush=True)
-            """;
-
-    /** Asks gallery-dl whether each URL is a single post on one of the platforms in argv[1]. Prints category or "-". */
-    private static final String GALLERY_DL_PROBE = """
-            import sys
-            from gallery_dl import extractor
-            platforms = set(sys.argv[1].split(','))
-            posts = {'post', 'artwork', 'image', 'media', 'submission', 'work', 'article', 'video', 'wall-post'}
-            for url in sys.argv[2:]:
-                try:
-                    ex = extractor.find(url)
-                except Exception:
-                    ex = None
-                ok = ex is not None and ex.category in platforms and ex.subcategory in posts
-                print(ex.category if ok else '-', flush=True)
-            """;
-
     private static final int INSTANCE_PORT = 48623;
 
     /** Waiting jobs in download order (includes automatic retries waiting for their delay). Guarded by itself. */
     private final LinkedList<Job> pending = new LinkedList<>();
     private volatile Job current;
-    private volatile Process currentProcess;
     private volatile boolean paused = false;
     /** True while Homebrew installs/upgrades tools: the queue waits so yt-dlp is never replaced mid-download. */
     private volatile boolean toolsBusy = false;
@@ -507,7 +200,7 @@ public final class InstaTray implements WindowHost {
 
         // Ignore whatever is already in the clipboard at startup, but the window offers it
         lastClip = readClipboard();
-        List<Link> copiedBefore = findLinks(lastClip).stream()
+        List<Link> copiedBefore = Links.find(lastClip).stream()
                 .filter(l -> !done.contains(l.key()) && !queued.contains(l.key())).toList();
         if (!copiedBefore.isEmpty()) notice = new JobView.Notice(JobView.Notice.Kind.COPIED_BEFORE, copiedBefore);
         poller.execute(() -> setStatus(Lang.key("Vigilando portapapeles")));
@@ -892,7 +585,7 @@ public final class InstaTray implements WindowHost {
 
     /** Folder for a site's videos, created on demand. */
     private Path outDir(Site site) {
-        return subfolders ? videosDir.resolve(site.label) : videosDir;
+        return subfolders ? videosDir.resolve(folderName(site)) : videosDir;
     }
 
     /** "~/Documents/Videos" -> "Documentos/Videos" (Finder's name for Documents in the current language). */
@@ -940,7 +633,7 @@ public final class InstaTray implements WindowHost {
     private void updateTrayIcon() {
         int pending = queued.size();
         Site site = activeSite;
-        AeroIcon.Palette palette = pending == 0 || site == null ? AeroIcon.Palette.IDLE : site.palette();
+        AeroIcon.Palette palette = pending == 0 || site == null ? AeroIcon.Palette.IDLE : AeroIcon.palette(site);
         int pct = palette == AeroIcon.Palette.IDLE ? -1 : activePercent;
         // One item: the number is its download percentage. Several: the number is how many are pending.
         // (one item with unknown progress, e.g. gallery-dl: the site-colored orb shows the download arrow)
@@ -980,7 +673,7 @@ public final class InstaTray implements WindowHost {
             if (pending == 0) return Lang.t("InstaTray — sin descargas");
             return toolsBusy ? Lang.f("InstaTray — %d en cola, actualizando herramientas", pending) : Lang.f("InstaTray — %d en cola", pending);
         }
-        StringBuilder sb = new StringBuilder(j.link.label());
+        StringBuilder sb = new StringBuilder(label(j.link));
         if (!j.title.isBlank()) sb.append(" · ").append(shorten(j.title, 50));
         sb.append(" — ").append(j.percent >= 0 ? j.percent + "%" : Lang.t("preparando…"));
         if (!j.speed.isBlank()) sb.append(" · ").append(j.speed);
@@ -1005,22 +698,12 @@ public final class InstaTray implements WindowHost {
         return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 
-    static String formatSpeed(double bytesPerSec) {
-        if (bytesPerSec >= 1024 * 1024) return String.format(Locale.ROOT, "%.1f MB/s", bytesPerSec / (1024 * 1024));
-        if (bytesPerSec >= 1024) return String.format(Locale.ROOT, "%.0f KB/s", bytesPerSec / 1024);
-        return String.format(Locale.ROOT, "%.0f B/s", bytesPerSec);
-    }
-
     static String formatBytes(double bytes) {
         if (bytes >= 1024L * 1024 * 1024) return String.format(Locale.ROOT, "%.2f GB", bytes / (1024L * 1024 * 1024));
         if (bytes >= 1024 * 1024) return String.format(Locale.ROOT, "%.1f MB", bytes / (1024 * 1024));
         return String.format(Locale.ROOT, "%.0f KB", bytes / 1024);
     }
 
-    static String formatEta(long seconds) {
-        long h = seconds / 3600, m = seconds % 3600 / 60, sec = seconds % 60;
-        return h > 0 ? String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec) : String.format(Locale.ROOT, "%d:%02d", m, sec);
-    }
 
     /** The status line's Spanish key and arguments, to redo it after a language change. */
     private volatile String statusKey = Lang.key("Listo — copia un enlace de video");
@@ -1048,11 +731,11 @@ public final class InstaTray implements WindowHost {
 
     private String cookiesLabel() {
         List<String> with = new ArrayList<>();
-        for (Site site : NAMED_SITES) {
-            if (findCookies(site) != null) with.add(site.display());
+        for (Site site : Site.named()) {
+            if (Cookies.find(DOWNLOADS, site) != null) with.add(display(site));
         }
         return with.isEmpty() ? Lang.t("Cookies: ninguna en Descargas")
-                : Lang.f("Cookies: %s (%d de %d sitios)", String.join(", ", with), with.size(), NAMED_SITES.size());
+                : Lang.f("Cookies: %s (%d de %d sitios)", String.join(", ", with), with.size(), Site.named().size());
     }
 
     // ---------------------------------------------------------------- clipboard
@@ -1091,20 +774,6 @@ public final class InstaTray implements WindowHost {
         handleText(clip, readClipboardHtml(), false);
     }
 
-    /**
-     * A supported link found in the clipboard. Catch-all keys carry the library's name for the site:
-     * "ytdl:Niconico:sm9" (extractor + id) or "gdl:artstation:URL" (category + URL).
-     */
-    record Link(Site site, String key, String url) {
-        /** What the user sees as the site: the label, or the extractor/category name for catch-alls. */
-        String label() {
-            if (!site.isCatchAll()) return site.display();
-            String[] k = key.split(":", 3);
-            if (k.length < 2 || k[1].isEmpty()) return site.display();
-            return Character.toUpperCase(k[1].charAt(0)) + k[1].substring(1); // gallery-dl categories are lower-case
-        }
-    }
-
     private boolean handleText(String text, boolean force) {
         return handleText(text, "", force);
     }
@@ -1115,13 +784,13 @@ public final class InstaTray implements WindowHost {
      */
     private boolean handleText(String text, String richHtml, boolean force) {
         boolean found = false;
-        boolean source = looksLikeHtml(text);
+        boolean source = Links.looksLikeHtml(text);
         String plain = source ? "" : text;
         // explicit requests (window field, "Descargar enlace copiado ahora") may use the generic extractor even with embeds off
-        List<Link> links = new ArrayList<>(findLinks(plain));
-        links.addAll(probeLibraries(otherCandidates(plain), embeds || force));
+        List<Link> links = new ArrayList<>(Links.find(plain));
+        links.addAll(probeLibraries(Links.otherCandidates(plain), embeds || force));
         String html = source ? text : richHtml;
-        PageVideos pv = html.isEmpty() ? null : pageVideos(html);
+        Links.PageVideos pv = html.isEmpty() ? null : Links.pageVideos(html);
         List<Link> fromPage = pv == null ? List.of() : pageLinks(pv, force);
         links.addAll(fromPage);
         List<Link> ignored = new ArrayList<>();
@@ -1130,7 +799,7 @@ public final class InstaTray implements WindowHost {
             String key = link.key();
             if (queued.contains(key)) continue;
             if (done.contains(key) && !force) {
-                setStatus(Lang.key("Ya descargado: %s %s"), link.label(), shortKey(key));
+                setStatus(Lang.key("Ya descargado: %s %s"), label(link), Links.shortKey(key));
                 ignored.add(link);
                 continue;
             }
@@ -1183,17 +852,17 @@ public final class InstaTray implements WindowHost {
      * page with a video in it is the request); embedded players only through a real extractor unless embeds is on,
      * so ad and widget iframes stay out. Falls back to the page's own canonical URL.
      */
-    private List<Link> pageLinks(PageVideos pv, boolean force) {
+    private List<Link> pageLinks(Links.PageVideos pv, boolean force) {
         if (pv.isEmpty()) return List.of();
         log("Pasted page: " + pv.media().size() + " media, " + pv.players().size() + " players, page " + pv.page());
         String media = String.join("\n", pv.media()), players = String.join("\n", pv.players());
-        List<Link> links = new ArrayList<>(findLinks(media));
-        links.addAll(probeLibraries(otherCandidates(media), true));
-        links.addAll(findLinks(players));
-        links.addAll(probeLibraries(otherCandidates(players), embeds || force));
+        List<Link> links = new ArrayList<>(Links.find(media));
+        links.addAll(probeLibraries(Links.otherCandidates(media), true));
+        links.addAll(Links.find(players));
+        links.addAll(probeLibraries(Links.otherCandidates(players), embeds || force));
         if (links.isEmpty() && pv.page() != null) {
-            links.addAll(findLinks(pv.page()));
-            links.addAll(probeLibraries(otherCandidates(pv.page()), embeds || force));
+            links.addAll(Links.find(pv.page()));
+            links.addAll(probeLibraries(Links.otherCandidates(pv.page()), embeds || force));
         }
         return links;
     }
@@ -1208,7 +877,7 @@ public final class InstaTray implements WindowHost {
         job.clearOutput();
         if (activeSite == null) activeSite = job.link.site();
         updateTrayIcon();
-        setStatus(Lang.key("En cola: %s %s"), job.link.label(), shortKey(job.link.key()));
+        setStatus(Lang.key("En cola: %s %s"), label(job.link), Links.shortKey(job.link.key()));
         saveJobs();
         synchronized (pending) {
             pending.addLast(job);
@@ -1263,7 +932,6 @@ public final class InstaTray implements WindowHost {
                 log("ERROR worker: " + t);
             } finally {
                 current = null;
-                currentProcess = null;
                 updateTrayIcon(); // tooltip back to "sin descargas" / next in queue
             }
         }
@@ -1320,11 +988,10 @@ public final class InstaTray implements WindowHost {
             return;
         }
         if (job == current) {
-            job.cancelRequested = true; // download() sees it after the process dies
-            Process p = currentProcess;
-            if (p != null) {
-                p.descendants().forEach(ProcessHandle::destroy); // ffmpeg children too
-                p.destroy();
+            job.cancelRequested = true; // seen by download() before Fetch.run starts
+            synchronized (fetchLock) {
+                // Fetch.run kills the tool (ffmpeg children too), deletes partial files and returns CANCELLED
+                if (fetching != null) fetching.interrupt();
             }
             log("Cancel requested " + job.link.url());
         }
@@ -1397,29 +1064,17 @@ public final class InstaTray implements WindowHost {
         log("Cancelled " + job.link.url());
     }
 
-    /**
-     * Converts a downloaded file to mp4 H.264 + AAC unless it already is mp4 (Pixiv ugoira come out as
-     * H.264 mp4 already). GIFs and webm become mp4; the original is removed. Returns the final path.
-     */
+    /** Fetch.toPlayableMp4 with what it did in the job's output. Returns the final path. */
     private static String toPlayableMp4(String file, String ffmpeg, Job job) {
-        if (file.toLowerCase(Locale.ROOT).endsWith(".mp4") || ffmpeg == null) return file;
-        String out = file.replaceFirst("\\.[A-Za-z0-9]+$", "") + ".mp4";
-        List<String> cmd = List.of(ffmpeg, "-y", "-loglevel", "error", "-i", file,
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                "-c:a", "aac", "-movflags", "+faststart", out);
         try {
-            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            String err = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-            if (p.waitFor() == 0 && Files.exists(Paths.get(out))) {
-                Files.deleteIfExists(Paths.get(file));
-                job.addOutput("[InstaTray] " + Lang.f("convertido a mp4: %s", out));
-                return out;
-            }
-            job.addOutput("[InstaTray] " + Lang.f("no se pudo convertir %s: %s", file, err));
-        } catch (Exception e) {
-            job.addOutput("[InstaTray] " + Lang.f("no se pudo convertir %s: %s", file, e));
+            Path out = Fetch.toPlayableMp4(Paths.get(file), ffmpeg);
+            if (out.toString().equals(file)) return file;
+            job.addOutput("[InstaTray] " + Lang.f("convertido a mp4: %s", out));
+            return out.toString();
+        } catch (IOException e) {
+            job.addOutput("[InstaTray] " + Lang.f("no se pudo convertir %s: %s", file, e.getMessage()));
+            return file;
         }
-        return file;
     }
 
     /** Set once Terminal was opened for the Pixiv login, so repeated failures don't keep opening it. */
@@ -1456,47 +1111,6 @@ public final class InstaTray implements WindowHost {
         }
     }
 
-    /**
-     * Stops yt-dlp and its children and waits until they are really gone: a dying yt-dlp can still
-     * reopen its .part file for the next fragment, so cleaning up earlier leaves the file behind.
-     */
-    private static void killAndWait(Process p) {
-        if (p == null) return;
-        List<ProcessHandle> children = p.descendants().toList();
-        children.forEach(ProcessHandle::destroy);
-        p.destroy();
-        try {
-            if (!p.waitFor(3, TimeUnit.SECONDS)) {
-                children.forEach(ProcessHandle::destroyForcibly);
-                p.destroyForcibly().waitFor(3, TimeUnit.SECONDS);
-            }
-            for (ProcessHandle c : children) c.onExit().get(3, TimeUnit.SECONDS);
-        } catch (Exception ignored) {
-        }
-    }
-
-    /**
-     * Removes what a cancelled download left behind (.part, .ytdl, unmerged streams). macOS privacy
-     * (TCC) does not let this app list ~/Documents, but files can be removed by exact path, so it
-     * deletes the paths yt-dlp announced instead of scanning the folder.
-     */
-    private static void deletePartials(Job job) {
-        List<String> paths;
-        synchronized (job.destinations) {
-            paths = new ArrayList<>(job.destinations);
-        }
-        for (String d : paths) {
-            for (String candidate : new String[]{d, d + ".part", d + ".ytdl", d + ".part.ytdl"}) {
-                try {
-                    if (Files.deleteIfExists(Paths.get(candidate))) log("Deleted partial " + candidate);
-                } catch (IOException e) {
-                    log("ERROR deleting " + candidate + ": " + e);
-                }
-            }
-        }
-        job.destinations.clear();
-    }
-
     private void loadJobs() {
         if (!Files.exists(JOBS)) return;
         try {
@@ -1525,344 +1139,12 @@ public final class InstaTray implements WindowHost {
         }
     }
 
-    static List<Link> findLinks(String text) {
-        List<Link> links = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (LinkRule r : RULES) {
-            Matcher m = r.pattern().matcher(text);
-            while (m.find()) {
-                String key = r.key().apply(m);
-                if (seen.add(key)) links.add(new Link(r.site(), key, r.url().apply(m)));
-            }
-        }
-        return links;
-    }
-
-    /**
-     * URLs in the text that no rule matched and that don't belong to a known site (their profiles, channels and
-     * live pages must stay ignored), skipping bare home pages. These are the ones worth asking the libraries about.
-     */
-    static List<String> otherCandidates(String text) {
-        List<String> out = new ArrayList<>();
-        Matcher m = ANY_URL.matcher(text);
-        while (m.find() && out.size() < MAX_PROBED_URLS) {
-            String url = m.group().replaceFirst("[.,;:!?)\\]}>]+$", "");
-            String host = host(url);
-            if (host.isEmpty() || out.contains(url)) continue;
-            if (RULES.stream().anyMatch(r -> r.pattern().matcher(url).find())) continue;
-            if (NAMED_SITES.stream().anyMatch(s -> s.ownsHost(host))) continue;
-            if (url.substring(m.group().indexOf(host) + host.length()).replaceAll("[/?#]", "").isEmpty()) continue;
-            out.add(url);
-        }
-        return out;
-    }
-
-    /**
-     * Video URLs found in a pasted page (its HTML source, or the HTML flavor of a rich copy), best first.
-     * {@code media}: what the page itself plays (video/source tags, og:video, JSON-LD contentUrl, .mp4/.m3u8/.mpd
-     * URLs); {@code players}: embedded players (iframes, JSON-LD embedUrl); {@code page}: canonical URL or null.
-     */
-    record PageVideos(List<String> media, List<String> players, String page) {
-        boolean isEmpty() {
-            return media.isEmpty() && players.isEmpty() && page == null;
-        }
-    }
-
-    private static final Pattern HTML_SOURCE =
-            Pattern.compile("<(?:!doctype\\s+html|html|head|body|video|iframe|meta)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTML_TAG =
-            Pattern.compile("<(video|source|iframe|embed|meta|link|base)\\b([^>]*)>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTML_ATTR =
-            Pattern.compile("([\\w:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))");
-    private static final Pattern MEDIA_URL = Pattern.compile(
-            "(?:https?:)?//[^\\s<>\"'`()]+?\\.(?:mp4|m4v|mov|webm|m3u8|mpd)(?:\\?[^\\s<>\"'`()]*)?(?=[\\s<>\"'`()]|$)",
-            Pattern.CASE_INSENSITIVE);
-    private static final Pattern JSON_VIDEO = Pattern.compile("\"(contentUrl|embedUrl)\"\\s*:\\s*\"([^\"]+)\"");
-    /** Media paths relative to the page: "/media/clip.mp4", './v/index.m3u8'. */
-    private static final Pattern RELATIVE_MEDIA = Pattern.compile(
-            "[\"'](\\.{0,2}/(?!/)[^\\s<>\"'`()]+?\\.(?:mp4|m4v|mov|webm|m3u8|mpd)(?:\\?[^\\s<>\"'`()]*)?)[\"']",
-            Pattern.CASE_INSENSITIVE);
-    /** Video attributes of any element: data-video="…", data-hls-src="…", data-mp4="…". */
-    private static final Pattern DATA_VIDEO_ATTR = Pattern.compile("\\sdata-(?:video|video-src|video-url|src-video|hls|"
-            + "hls-src|hls-url|dash|dash-src|mp4|stream|stream-url|stream-src)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')",
-            Pattern.CASE_INSENSITIVE);
-    /** Player configs (JW Player, Clappr, custom ones): file: "…", hls: "…", videoUrl: "…". */
-    private static final Pattern PLAYER_CONFIG_URL = Pattern.compile("[\"']?(?:file|hls|hlsUrl|hls_url|dash|dashUrl|mp4|"
-            + "videoUrl|video_url|videoSrc|streamUrl|stream_url|manifestUrl|playbackUrl)[\"']?\\s*:\\s*"
-            + "[\"']((?:https?:)?/[^\"'\\s<>]+)[\"']", Pattern.CASE_INSENSITIVE);
-    /** Plyr players that wrap YouTube/Vimeo: data-plyr-provider="youtube" data-plyr-embed-id="ID" (either order). */
-    private static final Pattern PLYR_EMBED = Pattern.compile("<[^>]*?data-plyr-provider\\s*=\\s*[\"'](youtube|vimeo)[\"']"
-            + "[^>]*>|<[^>]*?data-plyr-embed-id[^>]*>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PLYR_ATTRS = Pattern.compile(
-            "data-plyr-(provider|embed-id)\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
-    /** Quality lists of player configs: sources: [{file: "…", label: "720p"}, …] (Video.js, JW Player, Plyr). */
-    private static final Pattern SOURCE_LIST = Pattern.compile(
-            "[\"']?(?:sources|qualities|renditions|levels)[\"']?\\s*:\\s*\\[([^\\[\\]]*)\\]", Pattern.CASE_INSENSITIVE);
-    private static final Pattern SOURCE_ENTRY = Pattern.compile("\\{([^{}]*)\\}");
-    private static final Pattern ENTRY_URL =
-            Pattern.compile("[\"']?(?:file|src|url)[\"']?\\s*:\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
-    private static final Pattern ENTRY_QUALITY = Pattern.compile(
-            "[\"']?(?:label|quality|res|height|size)[\"']?\\s*:\\s*[\"']?(\\d{3,4})", Pattern.CASE_INSENSITIVE);
-    /** Quality in a <source> attribute (Plyr size="720", res="1080", label="480p"). */
-    private static final Pattern ATTR_QUALITY = Pattern.compile("(\\d{3,4})");
-    /** Same video in several qualities: ".../clip_720p.mp4" vs ".../clip_1080p.mp4". */
-    private static final Pattern URL_QUALITY =
-            Pattern.compile("(?<=[/_.=-])(2160|1440|1080|720|540|480|360|240|144)p?(?=[/_.&-]|$)", Pattern.CASE_INSENSITIVE);
-    /** Files a page lists that are never video (JSON-LD contentUrl also names images, og:video can be a thumbnail). */
-    private static final Pattern NOT_VIDEO = Pattern.compile(
-            "\\.(?:jpe?g|png|gif|webp|avif|svg|ico|bmp|mp3|m4a|aac|ogg|wav|flac|css|js|json|pdf|vtt|srt)(?:[?#].*)?$",
-            Pattern.CASE_INSENSITIVE);
-
-    /** True if the text is HTML source rather than plain text with links. */
-    static boolean looksLikeHtml(String text) {
-        return HTML_SOURCE.matcher(text).find();
-    }
-
-    static PageVideos pageVideos(String html) {
-        // URLs inside scripts come JSON-escaped: "https:\/\/cdn\u002Fv.mp4"
-        String text = html.replace("\\/", "/").replaceAll("(?i)\\\\u002f", "/").replaceAll("(?i)\\\\u0026", "&");
-        String page = null, base = null;
-        List<String[]> found = new ArrayList<>(); // {kind, raw value}: "m" = media, "p" = player
-        List<List<String[]>> qualityLists = new ArrayList<>(); // {raw url, quality}: only the best of each is kept
-        List<String[]> videoSources = null; // <source> tags with a quality attribute in the current <video>
-        Matcher t = HTML_TAG.matcher(text);
-        while (t.find()) {
-            String tag = t.group(1).toLowerCase(Locale.ROOT);
-            Map<String, String> a = new HashMap<>();
-            Matcher am = HTML_ATTR.matcher(t.group(2));
-            while (am.find()) {
-                String v = am.group(2) != null ? am.group(2) : am.group(3) != null ? am.group(3) : am.group(4);
-                a.putIfAbsent(am.group(1).toLowerCase(Locale.ROOT), v);
-            }
-            String prop = a.getOrDefault("property", a.getOrDefault("name", "")).toLowerCase(Locale.ROOT);
-            String type = a.getOrDefault("type", "").toLowerCase(Locale.ROOT);
-            switch (tag) {
-                case "base" -> base = a.get("href");
-                case "link" -> {
-                    if (a.getOrDefault("rel", "").equalsIgnoreCase("canonical")) page = a.get("href");
-                }
-                case "meta" -> {
-                    String content = a.get("content");
-                    if (content == null) continue;
-                    if (prop.equals("og:url") && page == null) page = content;
-                    else if (prop.matches("og:video(?::url|:secure_url)?|twitter:player:stream")) {
-                        found.add(new String[] {"m", content});
-                    } else if (prop.equals("twitter:player")) found.add(new String[] {"p", content});
-                }
-                case "video", "source" -> {
-                    if (tag.equals("video")) qualityLists.add(videoSources = new ArrayList<>());
-                    if (type.startsWith("audio/") || type.startsWith("image/")) continue;
-                    String src = a.getOrDefault("src", a.get("data-src"));
-                    if (src == null) continue;
-                    String q = Stream.of("size", "res", "label", "data-quality", "data-res", "height")
-                            .map(a::get).filter(v -> v != null && ATTR_QUALITY.matcher(v).find()).findFirst().orElse(null);
-                    if (tag.equals("source") && q != null && videoSources != null) {
-                        Matcher qm = ATTR_QUALITY.matcher(q);
-                        qm.find();
-                        videoSources.add(new String[] {src, qm.group(1)});
-                    } else {
-                        found.add(new String[] {"m", src});
-                    }
-                }
-                default -> { // iframe, embed
-                    String src = a.getOrDefault("src", a.get("data-src"));
-                    if (src != null) found.add(new String[] {"p", src});
-                }
-            }
-        }
-        Matcher d = DATA_VIDEO_ATTR.matcher(text);
-        while (d.find()) found.add(new String[] {"m", d.group(1) != null ? d.group(1) : d.group(2)});
-        Matcher pl = PLYR_EMBED.matcher(text);
-        while (pl.find()) {
-            Map<String, String> a = new HashMap<>();
-            Matcher pa = PLYR_ATTRS.matcher(pl.group());
-            while (pa.find()) a.put(pa.group(1).toLowerCase(Locale.ROOT), pa.group(2));
-            String id = a.get("embed-id"), provider = a.getOrDefault("provider", "").toLowerCase(Locale.ROOT);
-            if (id == null) continue;
-            if (id.matches("(?i)(?:https?:)?//.+")) found.add(new String[] {"p", id});
-            else if (provider.equals("youtube")) found.add(new String[] {"p", "https://www.youtube.com/watch?v=" + id});
-            else if (provider.equals("vimeo")) found.add(new String[] {"p", "https://vimeo.com/" + id});
-        }
-        // configs inside attributes (Video.js data-setup) come with &quot; for quotes
-        String json = text.replace("&quot;", "\"").replace("&#34;", "\"");
-        Matcher j = JSON_VIDEO.matcher(json);
-        while (j.find()) found.add(new String[] {j.group(1).equals("contentUrl") ? "m" : "p", j.group(2)});
-        Matcher sl = SOURCE_LIST.matcher(json);
-        while (sl.find()) {
-            List<String[]> list = new ArrayList<>();
-            Matcher e = SOURCE_ENTRY.matcher(sl.group(1));
-            while (e.find()) {
-                Matcher u = ENTRY_URL.matcher(e.group(1));
-                if (!u.find()) continue;
-                Matcher q = ENTRY_QUALITY.matcher(e.group(1));
-                list.add(new String[] {u.group(1), q.find() ? q.group(1) : "0"});
-            }
-            qualityLists.add(list);
-        }
-        Matcher pc = PLAYER_CONFIG_URL.matcher(json);
-        while (pc.find()) found.add(new String[] {"m", pc.group(1)});
-        Matcher mu = MEDIA_URL.matcher(text);
-        while (mu.find()) found.add(new String[] {"m", mu.group()});
-        Matcher rm = RELATIVE_MEDIA.matcher(text);
-        while (rm.find()) found.add(new String[] {"m", rm.group(1)});
-
-        String pageUrl = resolveUrl(null, page);
-        String baseUrl = base != null ? resolveUrl(pageUrl, base) : pageUrl;
-        // a quality list names one video: keep its best entry (a manifest has every quality), drop the others
-        Set<String> best = new LinkedHashSet<>(), worse = new HashSet<>();
-        for (List<String[]> list : qualityLists) {
-            String top = null;
-            int topRank = -1;
-            for (String[] s : list) {
-                String url = resolveUrl(baseUrl, s[0]);
-                if (url == null || NOT_VIDEO.matcher(url).find()) continue;
-                int rank = url.matches("(?i).*\\.(?:m3u8|mpd)(?:\\?.*)?") ? 100000 : Integer.parseInt(s[1]);
-                if (top != null) worse.add(rank > topRank ? top : url);
-                if (rank > topRank) {
-                    top = url;
-                    topRank = rank;
-                }
-            }
-            if (top != null) best.add(top);
-        }
-        worse.removeAll(best);
-        Set<String> media = new LinkedHashSet<>(best), players = new LinkedHashSet<>();
-        for (String[] f : found) {
-            String url = resolveUrl(baseUrl, f[1]);
-            if (url == null || url.equals(pageUrl) || worse.contains(url) || NOT_VIDEO.matcher(url).find()) continue;
-            (f[0].equals("m") ? media : players).add(url);
-        }
-        players.removeAll(media);
-        return new PageVideos(bestQualities(media), new ArrayList<>(players), pageUrl);
-    }
-
-    /** Of URLs that differ only by a quality token (clip_720p.mp4, clip_1080p.mp4), keeps the highest one. */
-    static List<String> bestQualities(Collection<String> urls) {
-        Map<String, String> byVideo = new LinkedHashMap<>();
-        Map<String, Integer> rank = new HashMap<>();
-        for (String url : urls) {
-            Matcher q = URL_QUALITY.matcher(url);
-            int r = 0;
-            while (q.find()) r = Integer.parseInt(q.group(1));
-            String video = URL_QUALITY.matcher(url).replaceAll("Q");
-            if (!byVideo.containsKey(video) || r > rank.get(video)) {
-                byVideo.put(video, url);
-                rank.put(video, r);
-            }
-        }
-        return new ArrayList<>(byVideo.values());
-    }
-
-    /** Absolute http(s) URL for an attribute value (entities decoded), or null (blob:, data:, unresolvable). */
-    static String resolveUrl(String base, String value) {
-        if (value == null) return null;
-        String v = value.trim().replace("&amp;", "&").replace("&#38;", "&").replace("&#x2F;", "/")
-                .replace("&#47;", "/").replace("&quot;", "").replace(" ", "%20");
-        if (v.startsWith("//")) v = "https:" + v;
-        if (v.matches("(?i)https?://.+")) return v;
-        if (v.isEmpty() || v.matches("(?i)[a-z][a-z0-9+.-]*:.*") || base == null) return null;
-        try {
-            String r = java.net.URI.create(base).resolve(v).toString();
-            return r.matches("(?i)https?://.+") ? r : null;
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    /** Lower-case host without "www.", or "" if the text isn't a URL. */
-    static String host(String url) {
-        Matcher m = URL_HOST.matcher(url);
-        return m.find() ? m.group(1).toLowerCase(Locale.ROOT).replaceFirst("^www\\.", "") : "";
-    }
-
-    /** Registrable domain: "nicovideo.jp" for "sp.nicovideo.jp", "bbc.co.uk" for "www.bbc.co.uk". */
-    static String baseDomain(String host) {
-        String[] l = host.split("\\.");
-        if (l.length < 3) return host;
-        boolean secondLevel = l[l.length - 1].length() == 2
-                && Set.of("co", "com", "net", "org", "ac", "gov", "edu", "ne", "or", "go").contains(l[l.length - 2]);
-        int keep = secondLevel ? 3 : 2;
-        return String.join(".", Arrays.copyOfRange(l, l.length - keep, l.length));
-    }
-
-    /** Library answers per URL; empty = not supported. Only complete answers are cached. */
-    private final Map<String, Optional<Link>> probeCache = new ConcurrentHashMap<>();
-    /** Unsupported URLs only yt-dlp's Generic extractor would try: EMBED links while {@link #embeds} is on. */
-    private final Set<String> genericUrls = ConcurrentHashMap.newKeySet();
+    /** Asks the libraries about URLs no rule knows (catch-all sites). */
+    private final Probe probe = new Probe(InstaTray::libraryPython, toolEnvironment(), InstaTray::log);
 
     /** Catch-all links for the URLs: first whatever yt-dlp takes, then creator-platform posts gallery-dl takes. */
     List<Link> probeLibraries(List<String> urls, boolean withEmbeds) {
-        List<String> todo = urls.stream().filter(u -> !probeCache.containsKey(u)).toList();
-        if (!todo.isEmpty()) {
-            if (probeCache.size() > 1000) {
-                probeCache.clear();
-                genericUrls.clear();
-            }
-            List<String> ytdl = runProbe("yt-dlp", YT_DLP_PROBE, List.of(), todo);
-            List<String> rest = new ArrayList<>();
-            for (int i = 0; i < todo.size(); i++) {
-                String url = todo.get(i);
-                String r = ytdl == null ? "-" : ytdl.get(i);
-                if (r.equals("-") || r.equals("*")) {
-                    if (r.equals("*")) genericUrls.add(url);
-                    rest.add(url);
-                    continue;
-                }
-                String[] f = r.split("\t", 2);
-                String id = f.length > 1 && !f[1].isBlank() ? f[1] : Integer.toHexString(url.hashCode());
-                probeCache.put(url, Optional.of(new Link(Site.OTHER, "ytdl:" + f[0] + ":" + id, url)));
-            }
-            List<String> gdl = rest.isEmpty() ? List.of()
-                    : runProbe("gallery-dl", GALLERY_DL_PROBE, List.of(String.join(",", CREATOR_PLATFORMS)), rest);
-            for (int i = 0; i < rest.size() && gdl != null && ytdl != null; i++) {
-                String url = rest.get(i);
-                String r = gdl.get(i);
-                probeCache.put(url, r.equals("-") ? Optional.empty()
-                        : Optional.of(new Link(Site.OTHER_GALLERY, "gdl:" + r + ":" + url, url)));
-            }
-            if (gdl != null && ytdl == null) { // yt-dlp couldn't answer: keep gallery-dl's hits, retry the rest later
-                for (int i = 0; i < rest.size(); i++) {
-                    if (!gdl.get(i).equals("-")) {
-                        probeCache.put(rest.get(i), Optional.of(new Link(Site.OTHER_GALLERY,
-                                "gdl:" + gdl.get(i) + ":" + rest.get(i), rest.get(i))));
-                    }
-                }
-            }
-        }
-        List<Link> links = new ArrayList<>();
-        for (String u : urls) {
-            Optional<Link> l = probeCache.get(u);
-            if (l != null && l.isPresent()) links.add(l.get());
-            else if (l != null && withEmbeds && genericUrls.contains(u)) {
-                links.add(new Link(Site.EMBED, "embed:" + host(u) + ":" + Integer.toHexString(u.hashCode()), u));
-            }
-        }
-        return links;
-    }
-
-    /** Runs a probe script with the library's own Python; one output line per URL, or null if it failed. */
-    private static List<String> runProbe(String tool, String script, List<String> args, List<String> urls) {
-        String python = libraryPython(tool);
-        if (python == null) return null;
-        List<String> cmd = new ArrayList<>(List.of(python, "-I", "-c", script));
-        cmd.addAll(args);
-        cmd.addAll(urls);
-        try {
-            ProcessBuilder pb = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.DISCARD);
-            toolEnvironment(pb);
-            Process p = pb.start();
-            CompletableFuture.delayedExecutor(20, TimeUnit.SECONDS).execute(p::destroyForcibly);
-            List<String> out = new ArrayList<>();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) out.add(line.strip());
-            }
-            if (p.waitFor() == 0 && out.size() == urls.size()) return out;
-            log("Probe " + tool + " failed (exit " + p.exitValue() + ", " + out.size() + " answers)");
-        } catch (Exception e) {
-            log("Probe " + tool + " failed: " + e);
-        }
-        return null;
+        return probe.links(urls, withEmbeds);
     }
 
     /** The interpreter in the Homebrew formula's shebang (its private venv), or the app's venv on Windows; or null. */
@@ -1871,24 +1153,7 @@ public final class InstaTray implements WindowHost {
             Path python = Platform.venvPython(Platform.venv());
             return Files.isRegularFile(python) ? python.toString() : null;
         }
-        String bin = findBin(tool);
-        if (bin == null) return null;
-        try (BufferedReader r = Files.newBufferedReader(Paths.get(bin).toRealPath(), StandardCharsets.UTF_8)) {
-            String first = r.readLine();
-            if (first == null || !first.startsWith("#!")) return null;
-            String python = first.substring(2).trim();
-            return Files.isExecutable(Paths.get(python)) ? python : null;
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    static String shortKey(String key) {
-        if (key.startsWith("ytdl:") || key.startsWith("embed:")) return key.split(":", 3)[2];
-        if (key.startsWith("gdl:")) { // last path segment of the post URL
-            return key.split(":", 3)[2].replaceFirst("[?#].*$", "").replaceFirst("/+$", "").replaceFirst("^.*/", "");
-        }
-        return key.substring(key.indexOf(':') + 1);
+        return Probe.shebangPython(findBin(tool));
     }
 
     // ---------------------------------------------------------------- download
@@ -1896,14 +1161,14 @@ public final class InstaTray implements WindowHost {
     private void download(Job job) {
         Link link = job.link;
         Site site = link.site();
-        String name = link.label() + " " + shortKey(link.key());
+        String name = label(link) + " " + Links.shortKey(link.key());
         Path outDir = outDir(site);
         job.cancelRequested = false;
         job.title = "";
         job.speed = "";
         job.eta = "";
         try {
-            boolean gallery = site.engine == Engine.GALLERY_DL;
+            boolean gallery = site.engine() == Engine.GALLERY_DL;
             String tool = gallery ? "gallery-dl" : "yt-dlp";
             String bin = findBin(tool);
             if (bin == null && ensureTools()) bin = findBin(tool);
@@ -1911,9 +1176,7 @@ public final class InstaTray implements WindowHost {
                 fail(job, name, Lang.f("Falta %s y no se pudo instalar (mira el registro)", tool), true);
                 return;
             }
-            Files.createDirectories(outDir);
-            String[] cookieDomains = site.isCatchAll() ? new String[]{baseDomain(host(link.url()))} : site.domains;
-            Path cookies = site.isCatchAll() ? findCookiesForDomain(cookieDomains[0]) : findCookies(site);
+            Path cookies = Cookies.forLink(DOWNLOADS, link);
             activeSite = site;
             // gallery-dl prints no percentage while it reads the post: until then the site-colored orb shows the arrow
             activePercent = gallery ? -1 : 0;
@@ -1923,150 +1186,39 @@ public final class InstaTray implements WindowHost {
             setStatus(Lang.key("Descargando %s…"), name);
             log("Downloading " + link.url() + (cookies != null ? " with cookies " + cookies : " without cookies"));
 
-            List<String> cmd = gallery ? new ArrayList<>(List.of(
-                    bin,
-                    "--no-colors",
-                    // terminal mode prints progress (pipe mode prints none); full paths; progress from the start
-                    "-o", "output.mode=terminal", "-o", "output.shorten=false", "-o", "downloader.progress=0",
-                    "-D", outDir.toString(),
-                    "-f", GALLERY_DL_FILENAME,
-                    "--filter", GALLERY_DL_FILTER, // video posts only; images are skipped
-                    "--ugoira", "mp4"))
-                    : new ArrayList<>(List.of(
-                    bin,
-                    // --print implies quiet mode, which hides progress: force it back on
-                    "--newline", "--no-quiet", "--progress", "--no-overwrites", "--restrict-filenames",
-                    "--progress-template",
-                    "download:" + PROGRESS_PREFIX + "%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s"
-                            + " %(progress.speed)s %(progress.eta)s",
-                    "--no-playlist",
-                    "--match-filter", "!is_live", // never start recording a live stream
-                    "-f", "bv*+ba/b",
-                    // H.264 + AAC first: QuickTime on Apple Silicon cannot play AV1/VP9
-                    "-S", "vcodec:h264,res,acodec:aac",
-                    "--merge-output-format", "mp4",
-                    // sites that only offer VP8/VP9 webm (e.g. 9GAG) get converted; files already in mp4 are left alone
-                    "--recode-video", "mp4",
-                    "-o", outDir + "/" + site.template,
-                    "--print", "after_move:filepath",
-                    "--print", "before_dl:" + TITLE_PREFIX + "%(title)s",
-                    "--no-simulate"));
             String ffmpeg = findBin("ffmpeg");
-            if (ffmpeg != null && !gallery) cmd.addAll(List.of("--ffmpeg-location", ffmpeg));
-            // a catch-all extractor may hand back a list (album, episode with parts): cap it
-            if (site == Site.OTHER || site == Site.EMBED) {
-                cmd.addAll(List.of("--playlist-items", "1:" + CATCH_ALL_MAX_ITEMS));
+            ToolPaths tools = new ToolPaths(findBin("yt-dlp"), findBin("gallery-dl"), ffmpeg);
+            Fetch.Result result;
+            boolean cancelledBefore;
+            synchronized (fetchLock) {
+                cancelledBefore = job.cancelRequested; // e.g. while the tools were being installed
+                if (!cancelledBefore) fetching = Thread.currentThread();
             }
-            // what the Generic extractor found, shown in "Detalles": extractor, format, protocol, size
-            if (site == Site.EMBED) {
-                cmd.addAll(List.of("--print", "before_dl:" + FOUND_PREFIX + "%(extractor_key)s · %(format_id)s · "
-                        + "%(protocol)s · %(resolution)s · %(filesize,filesize_approx)s · %(url).120s"));
-            }
-            if (cookies != null) {
-                // yt-dlp rewrites the cookie jar on exit, so it gets a copy holding only this site's cookies:
-                // the original stays intact and a full-browser export never leaks other sites' sessions
-                Path tmpCookies = STATE_DIR.resolve("cookies-session.txt");
-                writeDomainCookies(cookies, tmpCookies, cookieDomains);
-                cmd.addAll(List.of("--cookies", tmpCookies.toString()));
-            }
-            cmd.add(link.url());
-
-            ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-            toolEnvironment(pb);
-            Process p = pb.start();
-            currentProcess = p;
-
-            List<String> files = new ArrayList<>();
-            StringBuilder tail = new StringBuilder();
-            Progress progress = new Progress();
-            try (Reader r = new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8)) {
-                String line;
-                // gallery-dl redraws its progress with "\r", so the output is split on "\r" as well as "\n"
-                while ((line = readSegment(r)) != null) {
-                    if (line.isBlank()) continue;
-                    if (gallery) {
-                        Matcher gp = GALLERY_DL_PERCENT.matcher(line);
-                        if (gp.find()) {
-                            job.speed = gp.group(2) != null ? gp.group(2).replace("kB/s", " KB/s").replace("MB/s", " MB/s") : "";
-                            refreshTooltip();
-                            int pct = Math.min(99, Integer.parseInt(gp.group(1))); // 100 once the file is saved
-                            if (pct != job.percent) {
-                                job.percent = pct;
-                                activePercent = pct;
-                                updateTrayIcon();
-                                if (pct % 10 == 0) setStatus(Lang.key("Descargando %s… %d%%"), name, pct);
-                            }
-                            continue; // progress lines are not logged
-                        }
-                        String trimmed = line.strip();
-                        if (line.startsWith("  ") && Platform.isAbsolutePath(trimmed)) {
-                            job.destinations.add(trimmed); // file about to be written
-                            job.title = Paths.get(trimmed).getFileName().toString();
-                        }
-                        if ((trimmed.startsWith("✔ ") || trimmed.startsWith("* ")) && Platform.isAbsolutePath(trimmed.substring(2))) {
-                            String f = trimmed.substring(2);
-                            if (Files.exists(Paths.get(f))) files.add(f);
-                        }
+            if (cancelledBefore) {
+                result = new Fetch.Result(Fetch.Outcome.CANCELLED, Fetch.CANCELLED, List.of(), "");
+            } else {
+                try {
+                    result = Fetch.run(new Fetch.Request(link, outDir, null, cookies, null), tools, listener(job, name));
+                } finally {
+                    synchronized (fetchLock) {
+                        fetching = null;
                     }
-                    if (line.startsWith(TITLE_PREFIX)) {
-                        job.title = line.substring(TITLE_PREFIX.length()).strip();
-                        refreshTooltip();
-                        continue;
-                    }
-                    if (line.startsWith(FOUND_PREFIX)) {
-                        for (String l : describeFound(line.substring(FOUND_PREFIX.length())).split("\n")) {
-                            job.addOutput(l);
-                        }
-                        log("  " + line);
-                        continue;
-                    }
-                    if (line.startsWith(PROGRESS_PREFIX)) {
-                        String[] pf = line.substring(PROGRESS_PREFIX.length()).trim().split("\\s+");
-                        job.speed = pf.length > 2 && !pf[2].equals("NA") ? formatSpeed(parseOr(pf[2], 0)) : "";
-                        job.eta = pf.length > 3 && !pf[3].equals("NA") ? formatEta((long) parseOr(pf[3], 0)) : "";
-                        refreshTooltip();
-                        int pct = progress.update(line.substring(PROGRESS_PREFIX.length()));
-                        if (pct >= 0 && pct != job.percent) {
-                            job.percent = pct;
-                            activePercent = pct;
-                            updateTrayIcon();
-                            if (pct % 10 == 0) setStatus(Lang.key("Descargando %s… %d%%"), name, pct);
-                        }
-                        continue; // progress lines are not logged
-                    }
-                    progress.onLine(line);
-                    if (line.startsWith("[download] Destination: ")) {
-                        job.destinations.add(line.substring("[download] Destination: ".length()).trim());
-                    }
-                    log("  " + line);
-                    job.addOutput(line);
-                    if (Platform.isAbsolutePath(line) && Files.exists(Paths.get(line))) files.add(line);
-                    // gallery-dl marks files it already has with "# "
-                    if (gallery && line.startsWith("# ") && Platform.isAbsolutePath(line.substring(2))
-                            && Files.exists(Paths.get(line.substring(2)))) {
-                        files.add(line.substring(2));
-                    }
-                    tail.setLength(0);
-                    tail.append(line);
+                    Thread.interrupted(); // a cancel that came as the download ended must not reach the queue's wait
                 }
             }
-            int exit = p.waitFor();
-            if (job.cancelRequested) {
-                log("Cleaning partials of " + shortKey(link.key()) + " in " + outDir);
-                killAndWait(p);
-                deletePartials(job);
+            if (result.outcome() == Fetch.Outcome.CANCELLED) {
+                log("Cleaned partials of " + Links.shortKey(link.key()) + " in " + outDir);
+                job.destinations.clear();
                 markCancelled(job);
                 setStatus(Lang.key("Cancelado: %s"), name);
                 return;
             }
-
-            if (exit == 0 && !files.isEmpty() && gallery) {
-                // gallery-dl keeps the site's own format (webm, gif…): make everything QuickTime-friendly
-                List<String> converted = new ArrayList<>();
-                for (String f : files) converted.add(toPlayableMp4(f, ffmpeg, job));
-                files = converted;
-            }
-            if (exit == 0 && !files.isEmpty()) {
+            if (result.outcome() == Fetch.Outcome.DONE) {
+                List<String> files = new ArrayList<>();
+                for (Path f : result.files()) {
+                    // gallery-dl keeps the site's own format (webm, gif…): make everything QuickTime-friendly
+                    files.add(gallery ? toPlayableMp4(f.toString(), ffmpeg, job) : f.toString());
+                }
                 done.add(link.key());
                 Files.writeString(HISTORY, link.key() + "\n", StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -2078,58 +1230,33 @@ public final class InstaTray implements WindowHost {
                         : Lang.f("Guardado en %s", displayPath(outDir) + "/" + Paths.get(files.get(0)).getFileName());
                 job.status = Job.Status.DONE;
                 setStatus(Lang.key("Listo: %s"), name); // success is silent: only failures notify
-            } else {
-                String msg = tail.toString();
-                boolean permanent = true;
-                boolean silent = false;
-                String all = job.outputText();
-                if (gallery && exit == 0) {
-                    msg = Lang.t("Ese post no tiene video ni animación (solo imágenes)");
-                } else if (site == Site.PIXIV && (all.contains("refresh-token") || all.contains("401")
-                        || all.contains("Unauthorized") || all.contains("OAuth"))) {
-                    msg = Lang.t("Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta");
+                return;
+            }
+            boolean permanent = result.outcome() == Fetch.Outcome.FAILED_PERMANENT;
+            String reason = result.reason();
+            String msg = !permanent ? reason : switch (reason) {
+                case Fetch.NO_VIDEO_IN_POST -> Lang.t("Ese post no tiene video ni animación (solo imágenes)");
+                case Fetch.PIXIV_LOGIN -> {
                     connectPixiv();
-                } else if (gallery && (all.contains("403") || all.contains("401") || all.contains("login")
-                        || all.contains("Forbidden") || all.contains("cookies"))) {
-                    msg = Lang.f("%s pide sesión: exporta cookies nuevas de %s a Descargas", link.label(), cookieSource(link));
-                } else if (all.contains("anti-bot challenge")) {
-                    msg = Lang.t("El sitio bloquea las descargas automáticas (Cloudflare)"); // retrying never helps
-                } else if (site == Site.EMBED && (all.contains("HTTP Error 403") || all.contains("Forbidden"))) {
-                    // the server refuses anything but its own player: no workaround, the user can still open the page
-                    msg = Lang.t("El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»");
-                } else if (site == Site.EMBED && (msg.contains("Unsupported URL") || all.contains("404"))) {
-                    msg = Lang.t("No se encontró ningún video en la página");
-                    silent = true; // the page was most likely copied for its text: never notify
-                } else if (all.contains("404") || all.contains("NotFound") || all.contains("not found")) {
-                    msg = Lang.t("No existe, se borró o es privado");
-                } else if (exit == 0 || msg.contains("is_live")) {
-                    msg = Lang.t("Es una transmisión en vivo: no se graba");
-                } else if (msg.contains("There is no video") || msg.contains("No video could be found")) {
-                    msg = Lang.t("Ese post no tiene video");
-                } else if ((msg.contains("login") || msg.contains("cookies") || msg.contains("Sign in"))
-                        && !msg.contains("rate-limit")) {
-                    msg = Lang.f("%s pide sesión: exporta cookies nuevas de %s a Descargas", link.label(), cookieSource(link));
-                } else {
-                    permanent = false; // network, rate limits, server errors: worth retrying
-                    if (msg.startsWith("ERROR: ")) msg = msg.substring("ERROR: ".length());
+                    yield Lang.t("Pixiv pide conectar tu cuenta (solo una vez): sigue los pasos en la Terminal y reintenta");
                 }
-                fail(job, name, msg, permanent, silent);
-            }
+                case Fetch.LOGIN_NEEDED ->
+                        Lang.f("%s pide sesión: exporta cookies nuevas de %s a Descargas", label(link), cookieSource(link));
+                case Fetch.ANTI_BOT -> Lang.t("El sitio bloquea las descargas automáticas (Cloudflare)");
+                // the server refuses anything but its own player: no workaround, the user can still open the page
+                case Fetch.PAGE_ONLY -> Lang.t("El sitio no deja bajar este video fuera de su página (403): usa «Abrir página»");
+                case Fetch.NO_VIDEO_ON_PAGE -> Lang.t("No se encontró ningún video en la página");
+                case Fetch.NOT_FOUND -> Lang.t("No existe, se borró o es privado");
+                case Fetch.LIVE -> Lang.t("Es una transmisión en vivo: no se graba");
+                case Fetch.NO_VIDEO -> Lang.t("Ese post no tiene video");
+                default -> reason;
+            };
+            // the page was most likely copied for its text: never notify
+            fail(job, name, msg, permanent, Fetch.NO_VIDEO_ON_PAGE.equals(reason));
         } catch (Exception e) {
-            if (!job.cancelRequested) {
-                log("ERROR " + e);
-                job.addOutput("ERROR " + e);
-            }
-            if (job.cancelRequested) {
-                // killing yt-dlp usually ends here: reading its output fails once the process is gone
-                log("Cleaning partials (after read error) of " + shortKey(link.key()) + " in " + outDir);
-                killAndWait(currentProcess);
-                deletePartials(job);
-                markCancelled(job);
-                setStatus(Lang.key("Cancelado: %s"), name);
-            } else {
-                fail(job, name, String.valueOf(e.getMessage()));
-            }
+            log("ERROR " + e);
+            job.addOutput("ERROR " + e);
+            fail(job, name, String.valueOf(e.getMessage()));
         } finally {
             if (job.status != Job.Status.QUEUED) queued.remove(link.key());
             activePercent = -1;
@@ -2137,6 +1264,66 @@ public final class InstaTray implements WindowHost {
             updateTrayIcon();
             saveJobs();
         }
+    }
+
+    /** Guards {@link #fetching}: a cancel interrupts the worker only while it is inside Fetch.run. */
+    private final Object fetchLock = new Object();
+    /** The worker thread while it runs Fetch.run; null otherwise. */
+    private Thread fetching;
+
+    /** Where the tools are (for Fetch), with the app's tool environment. */
+    record ToolPaths(String ytDlp, String galleryDl, String ffmpeg) implements Tools {
+        @Override
+        public Map<String, String> environment() {
+            return toolEnvironment();
+        }
+    }
+
+    /** Fetch's reports → the job, the tray icon, the tooltip, the status line and the log. */
+    private Fetch.Listener listener(Job job, String name) {
+        return new Fetch.Listener() {
+            @Override
+            public void progress(double fraction, String speed, String eta) {
+                job.speed = speed;
+                job.eta = eta;
+                refreshTooltip();
+                int pct = Progress.percent(fraction);
+                if (pct >= 0 && pct != job.percent) {
+                    job.percent = pct;
+                    activePercent = pct;
+                    updateTrayIcon();
+                    if (pct % 10 == 0) setStatus(Lang.key("Descargando %s… %d%%"), name, pct);
+                }
+            }
+
+            @Override
+            public void title(String title) {
+                job.title = title;
+                refreshTooltip();
+            }
+
+            @Override
+            public void line(String line) {
+                InstaTray.log("  " + line);
+                if (line.startsWith(Fetch.FOUND_PREFIX)) {
+                    for (String l : describeFound(line.substring(Fetch.FOUND_PREFIX.length())).split("\n")) {
+                        job.addOutput(l);
+                    }
+                } else {
+                    job.addOutput(line);
+                }
+            }
+
+            @Override
+            public void destination(String path) {
+                job.destinations.add(path);
+            }
+
+            @Override
+            public void log(String message) {
+                InstaTray.log(message);
+            }
+        };
     }
 
     private void fail(Job job, String name, String msg) {
@@ -2178,9 +1365,6 @@ public final class InstaTray implements WindowHost {
                 Lang.f("%s — abre la ventana (Fallidas) para ver qué pasó o reintentar", job.message));
     }
 
-    private static final String PROGRESS_PREFIX = "PROG ";
-    private static final String TITLE_PREFIX = "TITLE ";
-    private static final String FOUND_PREFIX = "FOUND ";
 
     /** "Generic · hls-1080 · m3u8_native · 1920x1080 · 734003200 · https://…" → readable line for "Detalles". */
     static String describeFound(String raw) {
@@ -2193,10 +1377,6 @@ public final class InstaTray implements WindowHost {
         return Lang.f("Encontrado por %s: formato %s, %s, %s, %s\n  origen: %s", f[0], f[1], how,
                 f[3].equals("NA") ? Lang.t("resolución desconocida") : f[3], size, f[5]);
     }
-    /** gallery-dl terminal-mode progress: " 45%  1.20MB 300.00kB/s". */
-    private static final Pattern GALLERY_DL_PERCENT =
-            Pattern.compile("^\\s*(\\d{1,3})%\\s+\\S+\\s+([\\d.]+[kMG]?B/s)?");
-
     private static double parseOr(String s, double fallback) {
         try {
             return Double.parseDouble(s);
@@ -2205,156 +1385,32 @@ public final class InstaTray implements WindowHost {
         }
     }
 
-    /** Next piece of output ending in "\n" or "\r"; null at end of stream. */
-    private static String readSegment(Reader r) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        int c;
-        while ((c = r.read()) != -1) {
-            if (c == '\n' || c == '\r') return sb.toString();
-            sb.append((char) c);
-        }
-        return sb.length() > 0 ? sb.toString() : null;
-    }
-
-    /**
-     * Turns yt-dlp's per-file byte progress into one overall percentage. A "video+audio" format downloads
-     * two files back to back; the video gets 90% of the bar since it is by far the larger one.
-     */
-    static final class Progress {
-        private int parts = 1;
-        private int part = -1;
-
-        void onLine(String line) {
-            Matcher m = Pattern.compile("Downloading \\d+ format\\(s\\): (\\S+)").matcher(line);
-            if (m.find()) parts = m.group(1).contains("+") ? 2 : 1;
-            if (line.startsWith("[download] Destination:")) part++;
-        }
-
-        int update(String data) {
-            String[] f = data.trim().split("\\s+");
-            if (f.length < 2) return -1;
-            try {
-                double done = Double.parseDouble(f[0]);
-                double total = Double.parseDouble(f[1]);
-                if (total <= 0) return -1;
-                double frac = Math.min(1, done / total);
-                int idx = Math.max(0, part);
-                double overall = parts == 2 ? (idx == 0 ? frac * 0.9 : 0.9 + frac * 0.1) : frac;
-                return (int) Math.min(99, Math.round(overall * 100)); // 100 only once the file is saved
-            } catch (NumberFormatException e) {
-                return -1; // "NA" while the size is unknown
-            }
-        }
-    }
-
-    /**
-     * Cookies for a site, from ~/Downloads: the newest *cookie*.txt whose name mentions the site
-     * (e.g. www.youtube.com_cookies.txt); otherwise the newest general export (e.g. cookies.txt)
-     * that contains at least one cookie for the site.
-     */
-    static Path findCookies(Site site) {
-        List<Path> files = new ArrayList<>();
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(DOWNLOADS, "*.txt")) {
-            for (Path p : ds) {
-                if (p.getFileName().toString().toLowerCase(Locale.ROOT).contains("cookie")) files.add(p);
-            }
-        } catch (IOException e) {
-            return null;
-        }
-        files.sort(Comparator.comparingLong(InstaTray::modifiedTime).reversed());
-
-        for (Path p : files) {
-            if (site.matchesCookieFile(p.getFileName().toString().toLowerCase(Locale.ROOT))) return p;
-        }
-        for (Path p : files) {
-            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-            boolean otherSite = Arrays.stream(Site.values()).anyMatch(s -> s.matchesCookieFile(name));
-            if (!otherSite && hasSiteCookies(p, site)) return p;
-        }
-        return null;
-    }
-
-    /**
-     * Cookies for a catch-all site: the newest *cookie*.txt in ~/Downloads whose name mentions the domain
-     * (nicovideo for nicovideo.jp) and holds cookies for it; otherwise a general export (not named after one
-     * of the known sites) that does.
-     */
-    static Path findCookiesForDomain(String domain) {
-        String key = domain.split("\\.")[0];
-        List<Path> files = new ArrayList<>();
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(DOWNLOADS, "*.txt")) {
-            for (Path p : ds) {
-                if (p.getFileName().toString().toLowerCase(Locale.ROOT).contains("cookie")) files.add(p);
-            }
-        } catch (IOException e) {
-            return null;
-        }
-        files.sort(Comparator.comparingLong(InstaTray::modifiedTime).reversed());
-        for (Path p : files) {
-            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-            if (name.contains(key) && hasDomainCookies(p, domain)) return p;
-        }
-        for (Path p : files) {
-            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-            boolean namedSite = NAMED_SITES.stream().anyMatch(s -> s.matchesCookieFile(name));
-            if (!namedSite && hasDomainCookies(p, domain)) return p;
-        }
-        return null;
-    }
-
     /** Where the user should export cookies from, as shown in messages. */
     private static String cookieSource(Link link) {
-        return link.site().isCatchAll() ? baseDomain(host(link.url())) : link.site().display();
+        return link.site().isCatchAll() ? Links.baseDomain(Links.host(link.url())) : display(link.site());
     }
 
-    private static long modifiedTime(Path p) {
-        try {
-            return Files.getLastModifiedTime(p).toMillis();
-        } catch (IOException e) {
-            return 0;
-        }
+    /** A site's name in the current language (only the catch-alls have Spanish names). */
+    static String display(Site site) {
+        return Lang.t(folderName(site));
     }
 
-    private static boolean hasSiteCookies(Path file, Site site) {
-        return hasDomainCookies(file, site.domains);
+    /**
+     * Spanish name of a site: its subfolder on disk (never changes with the language) and the key of its English
+     * name. Only the catch-alls differ from the library's label.
+     */
+    static String folderName(Site site) {
+        return switch (site) {
+            case OTHER, OTHER_GALLERY -> Lang.key("Otros sitios");
+            case EMBED -> Lang.key("Video embebido");
+            default -> site.label();
+        };
     }
 
-    private static boolean hasDomainCookies(Path file, String... domains) {
-        try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
-            return lines.anyMatch(l -> isCookieLine(l) && cookieLineIn(l, domains));
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /** True if a Netscape cookie line belongs to one of the domains (or any subdomain). */
-    static boolean cookieLineIn(String line, String... domains) {
-        String domain = line.split("\t", 2)[0].toLowerCase(Locale.ROOT);
-        if (domain.startsWith("#httponly_")) domain = domain.substring("#httponly_".length());
-        if (domain.startsWith(".")) domain = domain.substring(1);
-        for (String d : domains) {
-            if (domain.equals(d) || domain.endsWith("." + d)) return true;
-        }
-        return false;
-    }
-
-    private static boolean isCookieLine(String line) {
-        return !line.isBlank() && (!line.startsWith("#") || line.startsWith("#HttpOnly_")) && line.indexOf('\t') > 0;
-    }
-
-    /** Writes a Netscape cookie file with only the site's cookies. */
-    static void writeSiteCookies(Path src, Path dst, Site site) throws IOException {
-        writeDomainCookies(src, dst, site.domains);
-    }
-
-    /** Writes a Netscape cookie file with only the cookies of these domains. */
-    static void writeDomainCookies(Path src, Path dst, String... domains) throws IOException {
-        List<String> out = new ArrayList<>();
-        out.add("# Netscape HTTP Cookie File");
-        for (String line : Files.readAllLines(src, StandardCharsets.UTF_8)) {
-            if (isCookieLine(line) && cookieLineIn(line, domains)) out.add(line);
-        }
-        Files.write(dst, out, StandardCharsets.UTF_8);
+    /** What the user sees as a link's site: its name, or the extractor/category name for catch-alls. */
+    static String label(Link link) {
+        String name = link.libraryName();
+        return name != null ? name : display(link.site());
     }
 
     /**
@@ -2730,11 +1786,17 @@ public final class InstaTray implements WindowHost {
 
     /** PATH with the tool folders (yt-dlp finds ffmpeg and deno through it); UTF-8 output from Python on Windows. */
     private static void toolEnvironment(ProcessBuilder pb) {
-        pb.environment().put("PATH", Platform.pathEnv(Platform.binDirs(), Platform.WINDOWS));
+        pb.environment().putAll(toolEnvironment());
+    }
+
+    private static Map<String, String> toolEnvironment() {
+        Map<String, String> env = new HashMap<>();
+        env.put("PATH", Platform.pathEnv(Platform.binDirs(), Platform.WINDOWS));
         if (Platform.WINDOWS) { // the console code page cannot print "✔" or non-Latin titles
-            pb.environment().put("PYTHONUTF8", "1");
-            pb.environment().put("PYTHONIOENCODING", "utf-8");
+            env.put("PYTHONUTF8", "1");
+            env.put("PYTHONIOENCODING", "utf-8");
         }
+        return env;
     }
 
     // ---------------------------------------------------------------- helpers

@@ -1,0 +1,3 @@
+# JitPack builds the engine library (pom.xml: core/src only) with Java 21.
+jdk:
+  - openjdk21

@@ -133,10 +133,7 @@ final class Platform {
 
     /** "/Users/x/a.mp4", "C:\Users\x\a.mp4" or "\\server\share\a.mp4": a full file path printed by a tool. */
     static boolean isAbsolutePath(String s) {
-        if (s == null || s.isEmpty()) return false;
-        if (s.startsWith("/")) return true;
-        if (s.startsWith("\\\\")) return true;
-        return s.length() > 2 && Character.isLetter(s.charAt(0)) && s.charAt(1) == ':' && (s.charAt(2) == '\\' || s.charAt(2) == '/');
+        return instatray.core.Fetch.isAbsolutePath(s);
     }
 
     // ---------------------------------------------------------------- appearance

@@ -255,11 +255,10 @@ En `~/Library/Application Support/InstaTray/`:
 | `jobs.tsv` | Descargas de la ventana (últimas 200, con título) |
 | `downloaded.txt` | Claves ya descargadas: un enlace repetido no se vuelve a bajar solo |
 | `instatray.log` | Registro detallado (menú de la esfera → *Ver registro*) |
-| `cookies-session.txt` | Copia temporal con **solo** las cookies del sitio que se está bajando |
 
 **Cookies:**
 - Por cada sitio se usa el `*cookie*.txt` más reciente de Descargas cuyo nombre menciona el sitio. Si no hay, se usa un export general que tenga cookies de ese sitio.
-- yt-dlp siempre recibe una **copia filtrada** con solo las cookies de ese sitio, y el original no se modifica.
+- yt-dlp siempre recibe una **copia filtrada** con solo las cookies de ese sitio (un archivo temporal que se borra al terminar la descarga), y el original no se modifica.
 - *Ajustes* muestra para qué sitios hay cookies en Descargas.
 - Cuando un sitio pida sesión, exporta de nuevo **solo las cookies de ese sitio**. No conviene dejar en Descargas un export de todo el navegador.
 
@@ -292,7 +291,7 @@ cd ~/Documents/GitHub/InstaTray
 
 `build.sh` hace todo:
 
-1. Compila `src/*.java` para Java 21 o superior (`--release 21`) y genera `build/InstaTray.jar`.
+1. Compila el motor (`core/src`) y `src/*.java` para Java 21 o superior (`--release 21`) y genera `build/InstaTray.jar`. No hace falta Maven.
 2. Dibuja el ícono con `AeroIcon`, lo empaqueta con `iconutil` en `.icns` y deja `icon.png`.
 3. Arma `InstaTray.app`: lanzador `src/launcher.sh` (revisa e instala requisitos), `setup.command` (instalador de Homebrew), `Info.plist` con `LSUIElement` (sin ícono en el Dock) e id `local.instatray`.
 4. Firma la app de forma local (ad-hoc, `codesign -s -`).
@@ -305,9 +304,13 @@ Si el programa está abierto, ciérralo antes de recompilar (*Salir*, o `pkill -
 ```
 InstaTray/
 ├── build.sh               # compila y arma la .app + acceso directo, y dist/InstaTray-Windows.zip
-├── test.sh                # compila y corre las pruebas de test/
+├── test.sh                # compila y corre las pruebas de test/ y core/test/
+├── core/                  # el motor de descargas como biblioteca (paquete instatray.core, solo el JDK)
+│   ├── src/instatray/core/ # Site, Links, Cookies, Probe, Fetch, Progress, Tools
+│   └── test/instatray/core/ # sus pruebas (herramientas falsas en carpetas temporales)
+├── pom.xml + jitpack.yml  # publican solo el motor en JitPack
 ├── src/
-│   ├── InstaTray.java     # bandeja, portapapeles, sitios, cola, descargas, ajustes
+│   ├── InstaTray.java     # bandeja, portapapeles, cola, reintentos, instalar herramientas, ajustes
 │   ├── Job.java           # una descarga: estado, progreso, título, salida, reintentos
 │   ├── JobView.java       # qué muestra cada fila: filtro, botones, línea gris (sin Swing, con pruebas)
 │   ├── WindowHost.java    # lo que la ventana le pide a la app
@@ -329,6 +332,28 @@ InstaTray/
 ├── dist/                  # generado: InstaTray-Windows.zip
 └── InstaTray.app          # generado
 ```
+
+## El motor como biblioteca
+
+Lo que reconoce enlaces, elige cookies y baja **un** video con yt-dlp o gallery-dl está en `core/` como una biblioteca aparte (paquete `instatray.core`, sin dependencias: solo el JDK, Java 21). InstaTray la usa tal cual, y otras apps también pueden usarla desde [JitPack](https://jitpack.io/#vaoan/InstaTray):
+
+```xml
+<repositories>
+  <repository><id>jitpack.io</id><url>https://jitpack.io</url></repository>
+</repositories>
+<dependency>
+  <groupId>com.github.vaoan</groupId>
+  <artifactId>InstaTray</artifactId>
+  <version>core-1.0.0</version>
+</dependency>
+```
+
+- `Links.find(texto)`: los enlaces de video de los sitios conocidos.
+- `Cookies.find(carpeta, sitio)`: el archivo de cookies del sitio en la carpeta que elijas.
+- `Fetch.run(pedido, herramientas, oyente)`: baja el enlace y avisa el progreso. Para cancelar, se interrumpe el hilo que lo llamó.
+- La biblioteca **no instala nada**: quien la usa le dice dónde están yt-dlp, gallery-dl y ffmpeg (`Tools`).
+
+Cada versión es una etiqueta `core-X.Y.Z` del repositorio. Licencia: BSD Zero Clause (`LICENSE`).
 
 ## Problemas conocidos y soluciones
 

@@ -1,3 +1,5 @@
+import instatray.core.Link;
+import instatray.core.Site;
 import java.awt.Rectangle;
 import java.util.List;
 
@@ -5,7 +7,7 @@ public class JobViewTest {
     static final long NOW = 1_800_000_000_000L;
 
     static Job job(Job.Status status) {
-        InstaTray.Link link = new InstaTray.Link(InstaTray.Site.YOUTUBE, "yt:" + status, "https://youtu.be/" + status);
+        Link link = new Link(Site.YOUTUBE, "yt:" + status, "https://youtu.be/" + status);
         Job j = new Job(link, NOW);
         j.status = status;
         return j;
@@ -132,8 +134,8 @@ public class JobViewTest {
         T.eq("subtitleAlreadyThere", "✓ Ya estaba en la carpeta · hace 5 min", JobView.subtitle(already, 0, NOW));
 
         // notices about links the watcher did not download
-        InstaTray.Link la = new InstaTray.Link(InstaTray.Site.X, "x:1", "https://x.com/a/status/1");
-        InstaTray.Link lb = new InstaTray.Link(InstaTray.Site.X, "x:2", "https://x.com/b/status/2");
+        Link la = new Link(Site.X, "x:1", "https://x.com/a/status/1");
+        Link lb = new Link(Site.X, "x:2", "https://x.com/b/status/2");
         T.eq("noticeDoneOne", "Ya descargado: X 1", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).text());
         T.eq("noticeDoneMany", "2 enlaces ya descargados", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la, lb)).text());
         T.eq("noticeDoneAction", "Bajar de nuevo", new JobView.Notice(JobView.Notice.Kind.ALREADY_DONE, List.of(la)).action());

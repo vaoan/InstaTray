@@ -1,3 +1,5 @@
+import instatray.core.Link;
+import instatray.core.Links;
 import java.awt.Rectangle;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -49,17 +51,17 @@ final class JobView {
     static final String ALREADY_THERE = Lang.key("Ya estaba en la carpeta");
 
     /** Links the clipboard watcher saw but did not download; one line in the window with a button to get them. */
-    record Notice(Kind kind, List<InstaTray.Link> links) {
+    record Notice(Kind kind, List<Link> links) {
         enum Kind { ALREADY_DONE, COPIED_BEFORE }
 
         String text() {
-            InstaTray.Link l = links.get(0);
-            String id = InstaTray.shortKey(l.key());
+            Link l = links.get(0);
+            String id = Links.shortKey(l.key());
             if (kind == Kind.ALREADY_DONE) {
-                return links.size() > 1 ? Lang.f("%d enlaces ya descargados", links.size()) : Lang.f("Ya descargado: %s %s", l.label(), id);
+                return links.size() > 1 ? Lang.f("%d enlaces ya descargados", links.size()) : Lang.f("Ya descargado: %s %s", InstaTray.label(l), id);
             }
             return links.size() > 1 ? Lang.f("%d enlaces copiados antes de abrir InstaTray", links.size())
-                    : Lang.f("Copiado antes de abrir InstaTray: %s %s", l.label(), id);
+                    : Lang.f("Copiado antes de abrir InstaTray: %s %s", InstaTray.label(l), id);
         }
 
         String action() {
@@ -127,7 +129,7 @@ final class JobView {
 
     /** toolsBusy: the queue is on hold while the download tools are being installed or replaced. */
     static String subtitle(Job j, int queuePosition, long nowMs, boolean toolsBusy) {
-        String site = j.link.label();
+        String site = InstaTray.label(j.link);
         return switch (j.status) {
             case DOWNLOADING -> {
                 StringBuilder sb = new StringBuilder(site);

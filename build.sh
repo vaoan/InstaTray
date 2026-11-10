@@ -12,7 +12,7 @@ rm -rf build InstaTray.app
 mkdir -p build/classes
 
 # --release 21: runs on any recent Java that Homebrew installs
-"$JAVAC" --release 21 -d build/classes src/*.java
+"$JAVAC" --release 21 -d build/classes core/src/instatray/core/*.java src/*.java # core = the engine library
 cat lang/en/*.tsv > build/classes/en.tsv # English texts (Lang), one file per source file
 "$JAR" --create --file build/InstaTray.jar --main-class InstaTray -C build/classes .
 
